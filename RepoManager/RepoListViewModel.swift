@@ -61,6 +61,11 @@ final class RepoListViewModel: ObservableObject {
         Task { await refreshSingle(id: newRepo.id) }
     }
     
+    func sort(using comparators: [KeyPathComparator<GitRepo>]) {
+        // 使用 Swift 标准库的 sort 方法，传入 comparators
+        repos.sort(using: comparators)
+    }
+
     func handleDrop(urls: [URL]) async {
         var candidatesFound: [ImportCandidate] = []
         

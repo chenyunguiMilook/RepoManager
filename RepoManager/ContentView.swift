@@ -13,11 +13,18 @@ struct ContentView: View {
     @State private var commitMessage = ""
     @State private var isShowingForceAlert = false
     
+    @State private var sortOrder = [KeyPathComparator(\GitRepo.name)]
+
     var body: some View {
         VStack(spacing: 0) {
             // 表格
-            Table(viewModel.repos, selection: $viewModel.selection) {
-                TableColumn("仓库名称") { repo in
+            // 2. 修改 Table：绑定 sortOrder
+            Table(viewModel.repos, selection: $viewModel.selection, sortOrder: $sortOrder) {
+                
+                // 3. 修改列定义：添加 value 参数以支持排序
+                
+                // 列 1: 名称 (按 .name 排序)
+                TableColumn("仓库名称", value: \.name) { repo in
                     VStack(alignment: .leading) {
                         Text(repo.name).font(.headline)
                         Text(repo.path).font(.caption).foregroundColor(.secondary)
@@ -26,52 +33,47 @@ struct ContentView: View {
                 }
                 .width(min: 150)
                 
-                TableColumn("分支") { repo in
+                // 列 2: 分支 (按 .branch 排序)
+                TableColumn("分支", value: \.branch) { repo in
                     Text(repo.branch)
                         .font(.system(.body, design: .monospaced))
                 }
                 
-                TableColumn("状态") { repo in
+                // 列 3: 状态 (按 .statusType 排序)
+                // 因为我们在 Model 中实现了 RepoStatusType 的 Comparable，这里可以直接用
+                TableColumn("状态", value: \.statusType) { repo in
                     StatusBadge(type: repo.statusType, message: repo.statusMessage)
                 }
                 
+                // 列 4: 操作 (不支持排序，所以不加 value)
                 TableColumn("操作") { repo in
                     HStack {
+                        // ... 按钮代码保持不变 ...
                         Button {
                             viewModel.selection = [repo.id]
                             commitMessage = ""
                             isShowingCommitAlert = true
-                        } label: {
-                            Image(systemName: "arrow.up.circle")
-                        }
+                        } label: { Image(systemName: "arrow.up.circle") }
                         .disabled(repo.statusType != .dirty)
-                        .help("提交变更")
-                        
+                        .help("提交")
+
                         Button {
-                            Task {
-                                await viewModel.batchOperation { repo in
-                                    _ = await GitService.sync(repo: repo)
-                                }
-                            }
-                        } label: {
-                            Image(systemName: "arrow.triangle.2.circlepath")
-                        }
+                             Task { await viewModel.batchOperation { _ = await GitService.sync(repo: $0) } }
+                        } label: { Image(systemName: "arrow.triangle.2.circlepath") }
                         .help("同步")
                         
                         Button {
-                            Task {
-                                await viewModel.batchOperation { repo in
-                                    _ = await GitService.forceSync(repo: repo)
-                                }
-                            }
-                        } label: {
-                            Image(systemName: "exclamationmark.arrow.circlepath")
-                                .foregroundColor(.red)
-                        }
+                            Task { await viewModel.batchOperation { _ = await GitService.forceSync(repo: $0) } }
+                        } label: { Image(systemName: "exclamationmark.arrow.circlepath").foregroundColor(.red) }
                         .help("强制覆盖")
                     }
-                    .buttonStyle(.plain) // 使用 Plain 样式避免点击穿透整行
+                    .buttonStyle(.plain)
                 }
+            }
+            // 4. 新增：监听排序变化
+            .onChange(of: sortOrder) { newOrder in
+                // 当用户点击表头时，newOrder 变了，触发 ViewModel 排序
+                viewModel.sort(using: newOrder)
             }
             // --- 拖拽核心修改：支持拖入文件夹 ---
             .dropDestination(for: URL.self) { items, location in
@@ -124,6 +126,7 @@ struct ContentView: View {
             // 给 UI 0.5秒的时间先渲染出列表骨架，再开始重度 IO
             try? await Task.sleep(nanoseconds: 500_000_000)
             await viewModel.refreshAll()
+            viewModel.sort(using: sortOrder)
         }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
