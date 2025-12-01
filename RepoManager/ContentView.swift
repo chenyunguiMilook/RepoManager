@@ -13,19 +13,32 @@ struct ContentView: View {
     @State private var commitMessage = ""
     @State private var isShowingForceAlert = false
     
+    // 1. 新增：搜索文本状态
+    @State private var searchText = ""
+    
+    // 2. 新增：排序状态
     @State private var sortOrder = [KeyPathComparator(\GitRepo.name)]
-
+    
+    // 3. 新增：计算属性，用于过滤显示的数据
+    // 逻辑：先过滤，后排序（因为 viewModel.repos 已经在 onChange 中被排过序了，这里只需过滤即可）
+    var filteredRepos: [GitRepo] {
+        if searchText.isEmpty {
+            return viewModel.repos
+        } else {
+            return viewModel.repos.filter { repo in
+                repo.name.localizedCaseInsensitiveContains(searchText)
+            }
+        }
+    }
+    
     var body: some View {
         VStack(spacing: 0) {
-            // 表格
-            // 2. 修改 Table：绑定 sortOrder
-            Table(viewModel.repos, selection: $viewModel.selection, sortOrder: $sortOrder) {
+            // 4. 修改：数据源从 viewModel.repos 改为 filteredRepos
+            Table(filteredRepos, selection: $viewModel.selection, sortOrder: $sortOrder) {
                 
-                // 3. 修改列定义：添加 value 参数以支持排序
-                
-                // 列 1: 名称 (按 .name 排序)
                 TableColumn("仓库名称", value: \.name) { repo in
                     VStack(alignment: .leading) {
+                        // 高亮搜索匹配文字 (可选优化，此处仅显示普通文字)
                         Text(repo.name).font(.headline)
                         Text(repo.path).font(.caption).foregroundColor(.secondary)
                     }
@@ -33,32 +46,27 @@ struct ContentView: View {
                 }
                 .width(min: 150)
                 
-                // 列 2: 分支 (按 .branch 排序)
                 TableColumn("分支", value: \.branch) { repo in
                     Text(repo.branch)
                         .font(.system(.body, design: .monospaced))
                 }
                 
-                // 列 3: 状态 (按 .statusType 排序)
-                // 因为我们在 Model 中实现了 RepoStatusType 的 Comparable，这里可以直接用
                 TableColumn("状态", value: \.statusType) { repo in
                     StatusBadge(type: repo.statusType, message: repo.statusMessage)
                 }
                 
-                // 列 4: 操作 (不支持排序，所以不加 value)
                 TableColumn("操作") { repo in
                     HStack {
-                        // ... 按钮代码保持不变 ...
                         Button {
                             viewModel.selection = [repo.id]
                             commitMessage = ""
                             isShowingCommitAlert = true
                         } label: { Image(systemName: "arrow.up.circle") }
                         .disabled(repo.statusType != .dirty)
-                        .help("提交")
-
+                        .help("提交变更")
+                        
                         Button {
-                             Task { await viewModel.batchOperation { _ = await GitService.sync(repo: $0) } }
+                            Task { await viewModel.batchOperation { _ = await GitService.sync(repo: $0) } }
                         } label: { Image(systemName: "arrow.triangle.2.circlepath") }
                         .help("同步")
                         
@@ -70,6 +78,9 @@ struct ContentView: View {
                     .buttonStyle(.plain)
                 }
             }
+            // 5. 新增：搜索修饰符
+            // placement: .toolbar 会自动将其放在 macOS 窗口右上角的标准位置
+            .searchable(text: $searchText, placement: .toolbar, prompt: "搜索仓库名称...")
             // 4. 新增：监听排序变化
             .onChange(of: sortOrder) { newOrder in
                 // 当用户点击表头时，newOrder 变了，触发 ViewModel 排序
