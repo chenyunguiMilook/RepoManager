@@ -73,6 +73,13 @@ struct ContentView: View {
                     .buttonStyle(.plain) // 使用 Plain 样式避免点击穿透整行
                 }
             }
+            // --- 拖拽核心修改：支持拖入文件夹 ---
+            .dropDestination(for: URL.self) { items, location in
+                Task {
+                    await viewModel.handleDrop(urls: items)
+                }
+                return true
+            }
             // 底部栏
             HStack {
                 Button("全选/反选") { viewModel.toggleSelectAll() }
@@ -163,6 +170,9 @@ struct ContentView: View {
             }
         } message: {
             Text("此操作不可逆，将丢失所有本地未提交修改。")
+        }
+        .sheet(isPresented: $viewModel.isShowingImportSheet) {
+            ImportSheetView(viewModel: viewModel)
         }
     }
     

@@ -9,11 +9,24 @@
 import SwiftUI
 import Combine
 
+// 待导入的候选仓库模型
+struct ImportCandidate: Identifiable, Hashable, Sendable {
+    let id = UUID()
+    let url: URL
+    var isSelected: Bool = true // 默认选中
+    
+    var name: String { url.lastPathComponent }
+}
+
 @MainActor
 final class RepoListViewModel: ObservableObject {
     @Published var repos: [GitRepo] = []
     @Published var selection: Set<GitRepo.ID> = []
     @Published var isRefreshing: Bool = false
+    
+    // --- 新增：导入弹窗相关状态 ---
+    @Published var isShowingImportSheet: Bool = false
+    @Published var importCandidates: [ImportCandidate] = []
     
     private let savePath: URL = {
         let paths = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
@@ -28,6 +41,71 @@ final class RepoListViewModel: ObservableObject {
         // 交给 View 的 .task { } 去触发
     }
     
+    // 核心逻辑：添加仓库（避免重复）
+    func addRepo(url: URL) {
+        let path = url.path
+        let name = url.lastPathComponent
+        guard !repos.contains(where: { $0.path == path }) else { return }
+        
+        let newRepo = GitRepo(path: path, name: name)
+        repos.append(newRepo)
+        saveToDisk() // 保存
+        
+        // 触发刷新
+        Task { await refreshSingle(id: newRepo.id) }
+    }
+    
+    // --- 新增：处理拖拽逻辑 ---
+    func handleDrop(urls: [URL]) async {
+        var candidatesFound: [ImportCandidate] = []
+        
+        // 切到后台线程进行文件 IO 操作
+        await Task.detached(priority: .userInitiated) {
+            for url in urls {
+                // 1. 如果本身就是 Git 仓库，直接在 MainActor 添加（稍后处理）
+                if GitService.isGitRepo(at: url) {
+                    await MainActor.run {
+                        self.addRepo(url: url)
+                    }
+                } else {
+                    // 2. 否则扫描子目录
+                    let subRepos = GitService.scanSubfolders(at: url)
+                    let candidates = subRepos.map { ImportCandidate(url: $0) }
+                    candidatesFound.append(contentsOf: candidates)
+                }
+            }
+        }.value
+        
+        // 如果发现了子仓库，显示弹窗
+        if !candidatesFound.isEmpty {
+            // 过滤掉已经在列表中的仓库
+            let existingPaths = Set(self.repos.map { $0.path })
+            let newCandidates = candidatesFound.filter { !existingPaths.contains($0.url.path) }
+            
+            if !newCandidates.isEmpty {
+                self.importCandidates = newCandidates
+                self.isShowingImportSheet = true
+            }
+        }
+    }
+    
+    // 确认导入选中的候选者
+    func confirmImport() {
+        for candidate in importCandidates where candidate.isSelected {
+            addRepo(url: candidate.url)
+        }
+        importCandidates.removeAll()
+        isShowingImportSheet = false
+    }
+    
+    // 候选列表全选/反选
+    func toggleCandidateSelection() {
+        let allSelected = importCandidates.allSatisfy { $0.isSelected }
+        for i in 0..<importCandidates.count {
+            importCandidates[i].isSelected = !allSelected
+        }
+    }
+
     // MARK: - Persistence
     func loadFromDisk() {
         guard let data = try? Data(contentsOf: savePath),
@@ -40,19 +118,7 @@ final class RepoListViewModel: ObservableObject {
             try? data.write(to: savePath)
         }
     }
-    
-    func addRepo(url: URL) {
-        let path = url.path
-        let name = url.lastPathComponent
-        guard !repos.contains(where: { $0.path == path }) else { return }
         
-        let newRepo = GitRepo(path: path, name: name)
-        repos.append(newRepo)
-        saveToDisk()
-        
-        Task { await refreshSingle(id: newRepo.id) }
-    }
-    
     // MARK: - Async Operations
     
     func refreshSingle(id: UUID) async {
