@@ -22,8 +22,14 @@ struct RepoManagerApp: App {
         // 设置窗口默认标题
         .windowResizability(.contentSize)
         .commands {
-            // 这里可以添加默认的菜单项（如 sidebar 命令等）
+            CommandGroup(replacing: .newItem) { }
             SidebarCommands()
+        }
+
+        // macOS 会自动将 "Settings..." (偏好设置) 菜单项绑定到这里
+        // 快捷键默认是 Cmd + ,
+        Settings {
+            SettingsView()
         }
 
         // 3. 添加菜单栏额外入口 (Status Bar Icon)
@@ -38,6 +44,24 @@ struct RepoManagerApp: App {
                 NSApp.activate(ignoringOtherApps: true)
             }
             .keyboardShortcut("o") // 支持快捷键 Cmd+O
+            
+            Divider()
+            
+            // MARK: - 修改点：使用 SettingsLink
+            // 注意：SettingsLink 仅支持 macOS 14.0+
+            if #available(macOS 14.0, *) {
+                SettingsLink {
+                    Text("偏好设置...")
+                }
+                .keyboardShortcut(",", modifiers: .command) // 绑定 Cmd+,
+            } else {
+                // macOS 13 或更低版本的兼容代码
+                Button("偏好设置...") {
+                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                    NSApp.activate(ignoringOtherApps: true)
+                }
+                .keyboardShortcut(",")
+            }
             
             Divider()
             
