@@ -14,17 +14,16 @@ struct RepoManagerApp: App {
 
     var body: some Scene {
         // 2. 给主窗口组指定一个唯一的 ID
-        WindowGroup(id: "MainWindow") {
+        Window("GitHubble", id: "MainWindow") {
             ContentView()
-                // 设置窗口最小尺寸，避免太小不好看
-                .frame(minWidth: 800, minHeight: 500)
+                .frame(minWidth: 800, minHeight: 600)
         }
-        // 设置窗口默认标题
-        .windowResizability(.contentSize)
+        // 移除标准菜单中的 "新建窗口" 选项，防止通过 Cmd+N 创建窗口
         .commands {
             CommandGroup(replacing: .newItem) { }
             SidebarCommands()
         }
+        .windowResizability(.contentSize)
 
         // macOS 会自动将 "Settings..." (偏好设置) 菜单项绑定到这里
         // 快捷键默认是 Cmd + ,
@@ -39,7 +38,7 @@ struct RepoManagerApp: App {
                 // 强制打开 ID 为 MainWindow 的窗口
                 // 即使窗口被 Cmd+W 关闭了，这行代码也能重新将其打开
                 openWindow(id: "MainWindow")
-                
+
                 // 将应用置于最前 (获取焦点)
                 NSApp.activate(ignoringOtherApps: true)
             }
