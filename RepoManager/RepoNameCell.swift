@@ -18,6 +18,11 @@ struct RepoNameCell: View {
             Text(repo.path).font(.caption).foregroundColor(.secondary)
         }
         .padding(.vertical, 4)
+        // 修改点 1: 强制让这个 VStack 填满表格列的宽度
+        .frame(maxWidth: .infinity, alignment: .leading)
+        // 修改点 2: 将整个区域（包括空白处）定义为可交互区域
+        .contentShape(Rectangle())
+        // 修改点 3: ContextMenu 必须放在 contentShape 之后
         .contextMenu {
             // 1. 打开文件夹
             Button {
