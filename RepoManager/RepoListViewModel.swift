@@ -13,9 +13,15 @@ import Combine
 struct ImportCandidate: Identifiable, Hashable, Sendable {
     let id = UUID()
     let url: URL
-    var isSelected: Bool = true // 默认选中
+    var isSelected: Bool
     
     var name: String { url.lastPathComponent }
+    
+    // 增加初始化方法
+    nonisolated init(url: URL, isSelected: Bool = true) {
+        self.url = url
+        self.isSelected = isSelected
+    }
 }
 
 @MainActor
@@ -55,35 +61,41 @@ final class RepoListViewModel: ObservableObject {
         Task { await refreshSingle(id: newRepo.id) }
     }
     
-    // --- 新增：处理拖拽逻辑 ---
     func handleDrop(urls: [URL]) async {
         var candidatesFound: [ImportCandidate] = []
         
-        // 切到后台线程进行文件 IO 操作
+        // 捕获静态列表以供后台线程使用 (Set是值类型，Sendable)
+        let favoriteList = Self.myProjectList
+        
         await Task.detached(priority: .userInitiated) {
             for url in urls {
-                // 1. 如果本身就是 Git 仓库，直接在 MainActor 添加（稍后处理）
                 if GitService.isGitRepo(at: url) {
-                    await MainActor.run {
-                        self.addRepo(url: url)
-                    }
+                    await MainActor.run { self.addRepo(url: url) }
                 } else {
-                    // 2. 否则扫描子目录
+                    // 扫描子目录
                     let subRepos = GitService.scanSubfolders(at: url)
-                    let candidates = subRepos.map { ImportCandidate(url: $0) }
+                    
+                    // 映射逻辑：如果在 favoriteList 中，则 isSelected = true，否则 false
+                    let candidates = subRepos.map { repoUrl -> ImportCandidate in
+                        let name = repoUrl.lastPathComponent
+                        let shouldSelect = favoriteList.contains(name)
+                        return ImportCandidate(url: repoUrl, isSelected: shouldSelect)
+                    }
                     candidatesFound.append(contentsOf: candidates)
                 }
             }
         }.value
         
-        // 如果发现了子仓库，显示弹窗
         if !candidatesFound.isEmpty {
-            // 过滤掉已经在列表中的仓库
+            // 过滤已存在的
             let existingPaths = Set(self.repos.map { $0.path })
             let newCandidates = candidatesFound.filter { !existingPaths.contains($0.url.path) }
             
             if !newCandidates.isEmpty {
-                self.importCandidates = newCandidates
+                // 排序优化：把选中的（你的项目）排在前面，方便查看
+                self.importCandidates = newCandidates.sorted {
+                    ($0.isSelected && !$1.isSelected) // true 排在 false 前面
+                }
                 self.isShowingImportSheet = true
             }
         }
@@ -206,4 +218,47 @@ final class RepoListViewModel: ObservableObject {
             selection = Set(repos.map { $0.id })
         }
     }
+    
+    // 使用 Set 提高查找性能
+    private static let myProjectList: Set<String> = [
+        "GuideKit",
+        "PickerKit",
+        "FillDisplayKit",
+        "CoreComponent",
+        "StyleKit",
+        "TextInputKit",
+        "ShortcutKit",
+        "SVGView",
+        "MetalCore",
+        "LayerKit",
+        "BitmapLayerKit",
+        "PrimeKit",
+        "RenderKit",
+        "FillKit",
+        "ShapeListKit",
+        "ShapeDrawKit",
+        "ShapeLayerKit",
+        "TextLayerKit",
+        "MetalShapeRender",
+        "UndoKit",
+        "NodeKit",
+        "NodeListKit",
+        "CodingKit",
+        "MSDFGenSwift",
+        "VectorShopDependencies",
+        "AttributeTableKit",
+        "ColorPicker",
+        "CoreUI",
+        "BezierKit",
+        "CatalystUI",
+        "MetalShaderCompiler",
+        "MetalSharedTypes",
+        "PathTesselator",
+        "SnappingKit",
+        "StringKit",
+        "SwiftInit",
+        "SwiftyXML",
+        "Triangulation",
+        "VisualDebugger"
+    ]
 }
