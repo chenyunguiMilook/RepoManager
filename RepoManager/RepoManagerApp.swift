@@ -14,7 +14,7 @@ struct RepoManagerApp: App {
 
     var body: some Scene {
         // 2. 给主窗口组指定一个唯一的 ID
-        Window("GitHubble", id: "MainWindow") {
+        Window("Repo Manager", id: "MainWindow") {
             ContentView()
                 .frame(minWidth: 800, minHeight: 600)
         }
