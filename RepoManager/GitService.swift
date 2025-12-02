@@ -37,26 +37,37 @@ struct GitService {
         }
     }
 
-    // 计算属性完全在后台进行，返回一个新的 Sendable Repo 对象
     nonisolated static func fetchStatus(for repo: GitRepo) async -> GitRepo {
         var newRepo = repo
         let path = repo.path
         
-        // 1. [新增] 探测项目文件 (Xcode Project / Swift Package)
-        // 这一步很快，直接用 FileManager，不需要 await shell
+        // 1. 探测项目文件
         newRepo.projectFileURL = detectProjectFile(at: path)
         
-        // 2. [新增] 获取最新 Tag
-        // 使用 git describe --tags --abbrev=0 获取最近的一个 Tag
-        // 或者 git tag --sort=-creatordate (需要 head -n 1)
-        // 这里使用 describe，如果报错说明没有 tag
+        // 2. 获取最新 Tag
         let (tagOut, tagCode) = await runCommand(["describe", "--tags", "--abbrev=0"], at: path)
         newRepo.latestTag = (tagCode == 0 && !tagOut.isEmpty) ? tagOut : "-"
         
-        // 3. 获取分支名称
+        // [新增] 判断最新 Tag 是否就在当前 HEAD 上
+        if newRepo.latestTag != "-" {
+            // 获取 HEAD 的完整 Hash
+            let (headHash, _) = await runCommand(["rev-parse", "HEAD"], at: path)
+            // 获取该 Tag 指向的完整 Hash
+            let (tagHash, _) = await runCommand(["rev-list", "-n", "1", newRepo.latestTag], at: path)
+            
+            // 如果两者 Hash 相同且不为空，说明当前提交就是这个版本的发布点
+            if !headHash.isEmpty && headHash == tagHash {
+                newRepo.isTagAtHead = true
+            } else {
+                newRepo.isTagAtHead = false
+            }
+        } else {
+            newRepo.isTagAtHead = false
+        }
+        
+        // 3. 获取分支状态 (保持不变)
         let (branchOut, _) = await runCommand(["rev-parse", "--abbrev-ref", "HEAD"], at: path)
         
-        // Detached HEAD 检查
         if branchOut == "HEAD" {
             let (hashOut, _) = await runCommand(["rev-parse", "--short", "HEAD"], at: path)
             newRepo.branch = "HEAD (\(hashOut))"
@@ -69,7 +80,7 @@ struct GitService {
         
         newRepo.branch = branchOut.isEmpty ? "Unknown" : branchOut
         
-        // 4. Fetch, Dirty, Ahead/Behind 逻辑 (保持不变)
+        // Fetch & Check Dirty
         _ = await runCommand(["fetch"], at: path)
         
         let (statusOut, _) = await runCommand(["status", "--porcelain"], at: path)
@@ -79,30 +90,26 @@ struct GitService {
             return newRepo
         }
         
+        // Check Ahead/Behind
         let (countOut, code) = await runCommand(["rev-list", "--left-right", "--count", "HEAD...@{u}"], at: path)
-        
-        if code != 0 {
-            newRepo.statusType = .error
-            newRepo.statusMessage = "无上游/连接失败"
-            return newRepo
-        }
-        
-        let components = countOut.components(separatedBy: .whitespaces).compactMap { Int($0) }
-        if components.count == 2 {
-            let ahead = components[0]
-            let behind = components[1]
-            if ahead > 0 && behind > 0 {
-                newRepo.statusType = .diverged
-                newRepo.statusMessage = "分叉 (⬆️\(ahead) ⬇️\(behind))"
-            } else if ahead > 0 {
-                newRepo.statusType = .ahead
-                newRepo.statusMessage = "需推送 (⬆️\(ahead))"
-            } else if behind > 0 {
-                newRepo.statusType = .behind
-                newRepo.statusMessage = "需拉取 (⬇️\(behind))"
-            } else {
-                newRepo.statusType = .clean
-                newRepo.statusMessage = "已同步"
+        if code == 0 {
+            let components = countOut.components(separatedBy: .whitespaces).compactMap { Int($0) }
+            if components.count == 2 {
+                let ahead = components[0]
+                let behind = components[1]
+                if ahead > 0 && behind > 0 {
+                    newRepo.statusType = .diverged
+                    newRepo.statusMessage = "分叉 (⬆️\(ahead) ⬇️\(behind))"
+                } else if ahead > 0 {
+                    newRepo.statusType = .ahead
+                    newRepo.statusMessage = "需推送 (⬆️\(ahead))"
+                } else if behind > 0 {
+                    newRepo.statusType = .behind
+                    newRepo.statusMessage = "需拉取 (⬇️\(behind))"
+                } else {
+                    newRepo.statusType = .clean
+                    newRepo.statusMessage = "已同步"
+                }
             }
         } else {
             newRepo.statusType = .clean

@@ -49,7 +49,8 @@ struct ContentView: View {
                 TableColumn("Tag", value: \.latestTag) { repo in
                     Text(repo.latestTag)
                         .font(.system(.body, design: .monospaced))
-                        .foregroundColor(.secondary)
+                        // 如果当前 HEAD 就是 Tag，显示绿色；否则（有新提交）显示灰色
+                        .foregroundColor(repo.isTagAtHead ? .green : .secondary)
                 }
                 .width(max: 100)
 
@@ -99,16 +100,14 @@ struct ContentView: View {
                                     
                     // [新增] 版本递增操作
                     Button {
-                        // 1. 设置当前操作的仓库
                         selectedRepoForVersion = repo
-                        // 2. 自动计算下一个版本
                         targetVersion = viewModel.calculateNextVersion(for: repo)
-                        // 3. 显示弹窗
                         isShowingVersionSheet = true
                     } label: {
                         Label("递增版本...", systemImage: "tag")
                     }
-                    
+                    .disabled(repo.isTagAtHead) // [关键修改] 如果 Tag 在 HEAD 上，禁用此功能
+
                     Divider()
                     
                     Section(repo.name) {
