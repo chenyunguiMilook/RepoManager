@@ -29,26 +29,28 @@ struct ContentView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            // 表格现在非常简洁
             Table(filteredRepos, selection: $viewModel.selection, sortOrder: $sortOrder) {
-                
-                // 列1：使用提取的 Cell
                 TableColumn("仓库名称", value: \.name) { repo in
                     RepoNameCell(repo: repo)
                 }
                 .width(min: 150)
                 
-                // 列2
+                // [新增] 最新 Tag 列
+                TableColumn("Tag", value: \.latestTag) { repo in
+                    Text(repo.latestTag)
+                        .font(.system(.body, design: .monospaced))
+                        .foregroundColor(.secondary)
+                }
+                .width(max: 100)
+                
                 TableColumn("分支", value: \.branch) { repo in
                     Text(repo.branch).font(.system(.body, design: .monospaced))
                 }
                 
-                // 列3
                 TableColumn("状态", value: \.statusType) { repo in
                     StatusBadge(type: repo.statusType, message: repo.statusMessage)
                 }
                 
-                // 列4：使用提取的 Cell
                 TableColumn("操作") { repo in
                     RepoActionCell(
                         repo: repo,
@@ -65,8 +67,80 @@ struct ContentView: View {
                 Task { await viewModel.handleDrop(urls: items) }
                 return true
             }
+            // [修改] 右键菜单移到 Table 层级，针对 Selection 生效
+            // 这使得整行点击都有效
+            .contextMenu(forSelectionType: GitRepo.ID.self) { selectedIds in
+                // 获取当前右键选中的单个或多个 ID
+                // 通常只对“第一个选中项”或“所有选中项”进行操作
+                // 这里我们提供通用操作，以及针对单个项目的特定操作
+                if let firstId = selectedIds.first, let repo = viewModel.repos.first(where: { $0.id == firstId }) {
+                    
+                    // --- 针对特定项目的操作 ---
+                    
+                    // 1. [新增] 打开 Xcode 项目 (如果有)
+                    if let projectURL = repo.projectFileURL {
+                        Button {
+                            NSWorkspace.shared.open(projectURL)
+                        } label: {
+                            Text("Open Project in Xcode")
+                            Image(systemName: "hammer") // 或 "app.badge"
+                        }
+                        Divider()
+                    }
+                    
+                    // 2. 打开文件夹
+                    Button {
+                        let url = URL(fileURLWithPath: repo.path)
+                        NSWorkspace.shared.open(url)
+                    } label: {
+                        Text("Open in Finder")
+                        Image(systemName: "folder")
+                    }
+                    
+                    // 3. 在 Finder 中显示
+                    Button {
+                        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: repo.path)
+                    } label: {
+                        Text("Reveal in Finder")
+                        Image(systemName: "magnifyingglass")
+                    }
+                    
+                    // 4. 打开终端
+                    Button {
+                        let url = URL(fileURLWithPath: repo.path)
+                        if let terminalUrl = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") {
+                             NSWorkspace.shared.open([url], withApplicationAt: terminalUrl, configuration: NSWorkspace.OpenConfiguration(), completionHandler: nil)
+                        }
+                    } label: {
+                        Text("Open in Terminal")
+                        Image(systemName: "terminal")
+                    }
+                    
+                    Divider()
+                    
+                    // 5. 复制路径
+                    Button {
+                        let pasteboard = NSPasteboard.general
+                        pasteboard.clearContents()
+                        pasteboard.setString(repo.path, forType: .string)
+                    } label: {
+                        Text("Copy Path")
+                        Image(systemName: "doc.on.doc")
+                    }
+                    
+                    Divider()
+                }
+                
+                // --- 针对所有选中的通用操作 ---
+                Button("刷新选中 (\(selectedIds.count))") {
+                    Task {
+                        for id in selectedIds {
+                            await viewModel.refreshSingle(id: id)
+                        }
+                    }
+                }
+            }
             
-            // 底部栏
             BottomBarView(
                 viewModel: viewModel,
                 filteredCount: filteredRepos.count,
@@ -96,7 +170,6 @@ struct ContentView: View {
             CommitSheet(
                 message: $commitMessage,
                 isPresented: $isShowingCommitAlert,
-                // 这里传入异步闭包，View 会等待它完成
                 onCommit: { msg, push in
                     await viewModel.batchCommitAndPush(message: msg, shouldPush: push)
                 }

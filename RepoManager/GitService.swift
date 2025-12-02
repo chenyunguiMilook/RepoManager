@@ -42,35 +42,36 @@ struct GitService {
         var newRepo = repo
         let path = repo.path
         
-        // 1. 获取分支名称
-        // 如果是 Detached HEAD，git rev-parse --abbrev-ref HEAD 通常返回 "HEAD"
+        // 1. [新增] 探测项目文件 (Xcode Project / Swift Package)
+        // 这一步很快，直接用 FileManager，不需要 await shell
+        newRepo.projectFileURL = detectProjectFile(at: path)
+        
+        // 2. [新增] 获取最新 Tag
+        // 使用 git describe --tags --abbrev=0 获取最近的一个 Tag
+        // 或者 git tag --sort=-creatordate (需要 head -n 1)
+        // 这里使用 describe，如果报错说明没有 tag
+        let (tagOut, tagCode) = await runCommand(["describe", "--tags", "--abbrev=0"], at: path)
+        newRepo.latestTag = (tagCode == 0 && !tagOut.isEmpty) ? tagOut : "-"
+        
+        // 3. 获取分支名称
         let (branchOut, _) = await runCommand(["rev-parse", "--abbrev-ref", "HEAD"], at: path)
         
-        // --- [新增] Detached HEAD 检测逻辑 ---
+        // Detached HEAD 检查
         if branchOut == "HEAD" {
-            // 获取当前的短 Commit Hash
             let (hashOut, _) = await runCommand(["rev-parse", "--short", "HEAD"], at: path)
-            newRepo.branch = "HEAD (\(hashOut))" // 显示为 HEAD (a1b2c3d)
+            newRepo.branch = "HEAD (\(hashOut))"
             newRepo.statusType = .detached
             newRepo.statusMessage = "游离状态"
-            
-            // 游离状态下通常不需要检测 Ahead/Behind，因为没有默认的上游分支
-            // 但我们仍然需要检查 Dirty 状态
             let (statusOut, _) = await runCommand(["status", "--porcelain"], at: path)
-            if !statusOut.isEmpty {
-                newRepo.statusMessage = "游离且未提交" // 组合提示
-            }
-            
+            if !statusOut.isEmpty { newRepo.statusMessage = "游离且未提交" }
             return newRepo
         }
         
-        // 正常分支逻辑
         newRepo.branch = branchOut.isEmpty ? "Unknown" : branchOut
         
-        // 2. Fetch
+        // 4. Fetch, Dirty, Ahead/Behind 逻辑 (保持不变)
         _ = await runCommand(["fetch"], at: path)
         
-        // 3. Check Dirty
         let (statusOut, _) = await runCommand(["status", "--porcelain"], at: path)
         if !statusOut.isEmpty {
             newRepo.statusType = .dirty
@@ -78,7 +79,6 @@ struct GitService {
             return newRepo
         }
         
-        // 4. Check Ahead/Behind
         let (countOut, code) = await runCommand(["rev-list", "--left-right", "--count", "HEAD...@{u}"], at: path)
         
         if code != 0 {
@@ -91,7 +91,6 @@ struct GitService {
         if components.count == 2 {
             let ahead = components[0]
             let behind = components[1]
-            
             if ahead > 0 && behind > 0 {
                 newRepo.statusType = .diverged
                 newRepo.statusMessage = "分叉 (⬆️\(ahead) ⬇️\(behind))"
@@ -113,6 +112,27 @@ struct GitService {
         return newRepo
     }
     
+    nonisolated static func detectProjectFile(at pathStr: String) -> URL? {
+        let fileManager = FileManager.default
+        let rootURL = URL(fileURLWithPath: pathStr)
+        
+        // 1. 检查 *.xcodeproj
+        // 由于 xcodeproj 是目录，我们需要扫描
+        if let contents = try? fileManager.contentsOfDirectory(at: rootURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
+            if let xcodeProj = contents.first(where: { $0.pathExtension == "xcodeproj" }) {
+                return xcodeProj
+            }
+        }
+        
+        // 2. 检查 Package.swift
+        let packageURL = rootURL.appendingPathComponent("Package.swift")
+        if fileManager.fileExists(atPath: packageURL.path) {
+            return packageURL
+        }
+        
+        return nil
+    }
+
     // 动作类命令
     nonisolated static func commit(repo: GitRepo, message: String) async -> Bool {
         _ = await runCommand(["add", "."], at: repo.path)

@@ -45,11 +45,16 @@ struct GitRepo: Identifiable, Codable, Hashable, Sendable {
     let path: String
     let name: String
     
-    // 运行时状态 (不参与 Hash/Equatable 以避免无关的 UI 重绘，但在 Swift 中 Struct 默认全属性参与)
-    // 这里我们将状态作为 var，更新时替换整个 Struct
     var branch: String = "-"
     var statusType: RepoStatusType = .loading
     var statusMessage: String = ""
+    
+    // [新增] 最新 Tag
+    var latestTag: String = ""
+    
+    // [新增] 存储检测到的 Xcode 项目文件路径 (.xcodeproj 或 Package.swift)
+    // 设为 String? 以便 Codable (虽然这里其实不需要持久化，但为了方便 Struct 结构)
+    var projectFileURL: URL? = nil
     
     init(id: UUID = UUID(), path: String, name: String) {
         self.id = id
@@ -57,9 +62,8 @@ struct GitRepo: Identifiable, Codable, Hashable, Sendable {
         self.name = name
     }
     
-    // 自定义 CodingKeys，只持久化基本信息，不持久化状态
     enum CodingKeys: String, CodingKey {
         case id, path, name
+        // status, tag, projectUrl 等属于运行时状态，不进行持久化
     }
 }
-
