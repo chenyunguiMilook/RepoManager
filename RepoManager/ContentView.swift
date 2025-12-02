@@ -107,7 +107,30 @@ struct ContentView: View {
                         Label("递增版本...", systemImage: "tag")
                     }
                     .disabled(repo.isTagAtHead) // [关键修改] 如果 Tag 在 HEAD 上，禁用此功能
-
+                    
+                    // [新增] SPM 复制与浏览器打开
+                    if !repo.remoteURL.isEmpty {
+                        Divider()
+                        
+                        // Copy SPM Dependency
+                        Button {
+                            // 格式: .package(url: "git@github.com...", from: "0.0.18"),
+                            let tag = (repo.latestTag == "-" || repo.latestTag.isEmpty) ? "0.0.1" : repo.latestTag
+                            let spmString = ".package(url: \"\(repo.remoteURL)\", from: \"\(tag)\"),"
+                            
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(spmString, forType: .string)
+                        } label: {
+                            Label("Copy SPM Dependency", systemImage: "swift")
+                        }
+                        
+                        // Open in Browser
+                        Button {
+                            openInBrowser(remoteURL: repo.remoteURL)
+                        } label: {
+                            Label("Open in Browser", systemImage: "safari")
+                        }
+                    }
                     Divider()
                     
                     Section(repo.name) {
@@ -201,6 +224,45 @@ struct ContentView: View {
             for url in panel.urls {
                 viewModel.addRepo(url: url)
             }
+        }
+    }
+    
+    // [辅助函数] 将 Git URL (SSH/HTTPS) 转换为浏览器可打开的 URL
+    func openInBrowser(remoteURL: String) {
+        // 输入: git@github.com:User/Repo.git 或 https://github.com/User/Repo.git
+        // 目标: https://github.com/User/Repo
+        
+        var urlStr = remoteURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // 1. 去掉 .git 后缀
+        if urlStr.hasSuffix(".git") {
+            urlStr = String(urlStr.dropLast(4))
+        }
+        
+        // 2. 处理 SSH 协议 (git@github.com:User/Repo)
+        if urlStr.hasPrefix("git@") {
+            // 去掉 "git@"
+            let hostAndPath = urlStr.dropFirst(4) // github.com:User/Repo
+            // 将第一个 ":" 替换为 "/" -> github.com/User/Repo
+            if let colonRange = hostAndPath.range(of: ":") {
+                let host = hostAndPath[..<colonRange.lowerBound]
+                let path = hostAndPath[colonRange.upperBound...]
+                urlStr = "https://\(host)/\(path)"
+            }
+        }
+        
+        // 3. 确保是 HTTPS
+        if !urlStr.hasPrefix("http") {
+             // 如果没转换成功，可能是 ssh:// 开头，或者其他格式
+             // 这里简单处理，如果还不是 http，就强制加 https
+             if !urlStr.hasPrefix("https://") {
+                 // 避免双重 https
+                 urlStr = "https://" + urlStr
+             }
+        }
+        
+        if let url = URL(string: urlStr) {
+            NSWorkspace.shared.open(url)
         }
     }
 }

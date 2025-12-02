@@ -41,31 +41,32 @@ struct GitService {
         var newRepo = repo
         let path = repo.path
         
-        // 1. 探测项目文件
+        // 1. [新增] 获取远程 URL (通常是 origin)
+        // 使用 git remote get-url origin
+        let (remoteOut, remoteCode) = await runCommand(["remote", "get-url", "origin"], at: path)
+        if remoteCode == 0 && !remoteOut.isEmpty {
+            newRepo.remoteURL = remoteOut
+        } else {
+            newRepo.remoteURL = ""
+        }
+        
+        // 2. 探测项目文件
         newRepo.projectFileURL = detectProjectFile(at: path)
         
-        // 2. 获取最新 Tag
+        // 3. 获取最新 Tag
         let (tagOut, tagCode) = await runCommand(["describe", "--tags", "--abbrev=0"], at: path)
         newRepo.latestTag = (tagCode == 0 && !tagOut.isEmpty) ? tagOut : "-"
         
-        // [新增] 判断最新 Tag 是否就在当前 HEAD 上
+        // 判断 Tag 是否在 HEAD
         if newRepo.latestTag != "-" {
-            // 获取 HEAD 的完整 Hash
             let (headHash, _) = await runCommand(["rev-parse", "HEAD"], at: path)
-            // 获取该 Tag 指向的完整 Hash
             let (tagHash, _) = await runCommand(["rev-list", "-n", "1", newRepo.latestTag], at: path)
-            
-            // 如果两者 Hash 相同且不为空，说明当前提交就是这个版本的发布点
-            if !headHash.isEmpty && headHash == tagHash {
-                newRepo.isTagAtHead = true
-            } else {
-                newRepo.isTagAtHead = false
-            }
+            newRepo.isTagAtHead = (!headHash.isEmpty && headHash == tagHash)
         } else {
             newRepo.isTagAtHead = false
         }
         
-        // 3. 获取分支状态 (保持不变)
+        // 4. 获取分支状态
         let (branchOut, _) = await runCommand(["rev-parse", "--abbrev-ref", "HEAD"], at: path)
         
         if branchOut == "HEAD" {
@@ -80,7 +81,7 @@ struct GitService {
         
         newRepo.branch = branchOut.isEmpty ? "Unknown" : branchOut
         
-        // Fetch & Check Dirty
+        // Fetch & Check
         _ = await runCommand(["fetch"], at: path)
         
         let (statusOut, _) = await runCommand(["status", "--porcelain"], at: path)
@@ -90,7 +91,6 @@ struct GitService {
             return newRepo
         }
         
-        // Check Ahead/Behind
         let (countOut, code) = await runCommand(["rev-list", "--left-right", "--count", "HEAD...@{u}"], at: path)
         if code == 0 {
             let components = countOut.components(separatedBy: .whitespaces).compactMap { Int($0) }

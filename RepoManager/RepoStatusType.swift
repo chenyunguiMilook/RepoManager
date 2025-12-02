@@ -56,7 +56,8 @@ struct GitRepo: Identifiable, Codable, Hashable, Sendable {
     // [新增] 存储检测到的 Xcode 项目文件路径 (.xcodeproj 或 Package.swift)
     // 设为 String? 以便 Codable (虽然这里其实不需要持久化，但为了方便 Struct 结构)
     var projectFileURL: URL? = nil
-    
+    var remoteURL: String = ""
+
     init(id: UUID = UUID(), path: String, name: String) {
         self.id = id
         self.path = path
