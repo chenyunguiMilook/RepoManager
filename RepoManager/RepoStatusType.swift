@@ -58,6 +58,8 @@ struct GitRepo: Identifiable, Codable, Hashable, Sendable {
     var projectFileURL: URL? = nil
     var remoteURL: String = ""
 
+    var currentOperation: String? = nil
+
     init(id: UUID = UUID(), path: String, name: String) {
         self.id = id
         self.path = path

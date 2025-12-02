@@ -135,23 +135,35 @@ final class RepoListViewModel: ObservableObject {
             try? data.write(to: savePath)
         }
     }
-        
+    
+/// 更新指定 Repo 的操作状态 (UI 更新必须在 MainActor)
+    func updateRepoOperation(id: UUID, operation: String?) {
+        if let index = repos.firstIndex(where: { $0.id == id }) {
+            repos[index].currentOperation = operation
+        }
+    }
+    
     // MARK: - Async Operations
     
     func refreshSingle(id: UUID) async {
         guard let index = repos.firstIndex(where: { $0.id == id }) else { return }
-        // 标记该行为加载中
-        repos[index].statusType = .loading
+        // 只有当没有其他操作时，才显示 Loading 状态，避免覆盖 "Pushing..."
+        if repos[index].currentOperation == nil {
+            repos[index].statusType = .loading
+        }
         let currentRepo = repos[index]
         
-        // 切到后台线程执行
         let updatedRepo = await Task.detached(priority: .userInitiated) {
             return await GitService.fetchStatus(for: currentRepo)
         }.value
         
-        // 回到 MainActor 更新 UI
+        // 恢复时，保留原来的 currentOperation (如果它在 fetch 期间发生了变化)
+        // 但通常 fetchStatus 完成后，我们直接覆盖即可，因为 fetch 本身就是一种 operation
         if let idx = repos.firstIndex(where: { $0.id == id }) {
-            repos[idx] = updatedRepo
+            var finalRepo = updatedRepo
+            // 保持当前的操作状态（如果有其他并发操作正在进行）
+            finalRepo.currentOperation = repos[idx].currentOperation
+            repos[idx] = finalRepo
         }
     }
     
@@ -160,16 +172,16 @@ final class RepoListViewModel: ObservableObject {
         isRefreshing = true
         defer { isRefreshing = false }
         
-        // 创建 currentRepos 的副本以传给 detached task (GitRepo 是 Struct，Sendable)
+        // 仅对没有正在进行操作的 Repo 显示 loading
+        for i in 0..<repos.count {
+            if repos[i].currentOperation == nil {
+                repos[i].statusType = .loading
+            }
+        }
+        
         let currentRepos = self.repos
         
-        // 使用 Stream 模式，处理完一个就回传一个，而不是等所有做完才刷新
         let repoUpdates = await Task.detached(priority: .userInitiated) { () -> [(UUID, GitRepo)] in
-            // 注意：这里我们使用 TaskGroup 并发运行，但并不一次性返回所有
-            // 实际上为了更好的 UX，我们更希望产生一个 AsyncStream，
-            // 但为了简化代码，这里演示批量并发获取，然后一次性推回或者分批推回。
-            // 既然 GitService 是 nonisolated，这里直接并发调用即可。
-            
             return await withTaskGroup(of: (UUID, GitRepo).self) { group in
                 for repo in currentRepos {
                     group.addTask {
@@ -177,76 +189,111 @@ final class RepoListViewModel: ObservableObject {
                         return (repo.id, updated)
                     }
                 }
-                
                 var results: [(UUID, GitRepo)] = []
-                for await result in group {
-                    results.append(result)
-                }
+                for await result in group { results.append(result) }
                 return results
             }
         }.value
         
-        // 等待所有结果（或者改为 AsyncStream 逐个 yield 回来以获得更好视觉效果）
-        let results = await repoUpdates
-        
-        // 批量更新 UI
-        for (id, updatedRepo) in results {
+        for (id, updatedRepo) in repoUpdates {
             if let index = repos.firstIndex(where: { $0.id == id }) {
-                repos[index] = updatedRepo
+                // 如果此时用户触发了其他操作，不要覆盖 currentOperation
+                var finalRepo = updatedRepo
+                finalRepo.currentOperation = repos[index].currentOperation
+                repos[index] = finalRepo
             }
         }
     }
     
-    func batchCommitAndPush(message: String, shouldPush: Bool) async {
-        // UI 进入 loading 状态
+    /// 通用批量操作，支持单独显示状态
+    func batchOperation(label: String, action: @escaping @Sendable (GitRepo) async -> Void) async {
+        // 全局 loading 稍微显示一下或者不显示，取决于设计，这里我们主要依赖行内 loading
         isRefreshing = true
         defer { isRefreshing = false }
         
-        let selectedRepos = repos.filter { selection.contains($0.id) }
+        let selectedIds = selection
         
-        // 后台并发执行
-        await Task.detached(priority: .userInitiated) {
-            await withTaskGroup(of: Void.self) { group in
-                for repo in selectedRepos {
-                    group.addTask {
-                        // 1. Commit
-                        if repo.statusType == .dirty {
-                            let commitSuccess = await GitService.commit(repo: repo, message: message)
-                            
-                            // 2. Push (if enabled and commit succeeded or was clean)
-                            if shouldPush && commitSuccess {
-                                _ = await GitService.push(repo: repo)
-                            }
-                        } else if shouldPush {
-                            // 如果本来就是 clean 或者 ahead，直接尝试 push
-                            _ = await GitService.push(repo: repo)
-                        }
+        // 1. 先将所有选中的 Repo 状态设为 "Pending..." 或具体操作名
+        for id in selectedIds {
+            updateRepoOperation(id: id, operation: label + "...")
+        }
+        
+        let snapshotRepos = repos.filter { selectedIds.contains($0.id) }
+        
+        await withTaskGroup(of: Void.self) { group in
+            for repo in snapshotRepos {
+                group.addTask {
+                    // 执行操作
+                    await action(repo)
+                    
+                    // 操作完成后：
+                    await MainActor.run {
+                        // 1. 清除操作状态
+                        self.updateRepoOperation(id: repo.id, operation: nil)
+                        // 2. 刷新该 Repo 的 Git 状态
+                        Task { await self.refreshSingle(id: repo.id) }
                     }
                 }
             }
-        }.value
-        
-        // 全部完成后刷新状态
-        await refreshAll()
+        }
     }
-
-    func batchOperation(action: @escaping @Sendable (GitRepo) async -> Void) async {
+    
+    /// 专门的提交并推送逻辑
+    func batchCommitAndPush(message: String, shouldPush: Bool) async {
         isRefreshing = true
         defer { isRefreshing = false }
         
-        let selectedRepos = repos.filter { selection.contains($0.id) }
+        let selectedIds = selection
+        // 初始状态
+        for id in selectedIds {
+            updateRepoOperation(id: id, operation: "准备中...")
+        }
         
-        await Task.detached(priority: .userInitiated) {
-            await withTaskGroup(of: Void.self) { group in
-                for repo in selectedRepos {
-                    group.addTask {
-                        await action(repo)
+        let snapshotRepos = repos.filter { selectedIds.contains($0.id) }
+        
+        await withTaskGroup(of: Void.self) { group in
+            for repo in snapshotRepos {
+                group.addTask {
+                    // 1. Commit
+                    await MainActor.run { self.updateRepoOperation(id: repo.id, operation: "Committing...") }
+                    
+                    var commitSuccess = false
+                    if repo.statusType == .dirty {
+                        commitSuccess = await GitService.commit(repo: repo, message: message)
+                    } else {
+                        // 如果不脏，视为 Commit 阶段通过（可能是单纯想 Push Ahead 的）
+                        commitSuccess = true
+                    }
+                    
+                    // 2. Push
+                    if shouldPush && commitSuccess {
+                        await MainActor.run { self.updateRepoOperation(id: repo.id, operation: "Pushing...") }
+                        _ = await GitService.push(repo: repo)
+                    }
+                    
+                    // 3. 完成
+                    await MainActor.run {
+                        self.updateRepoOperation(id: repo.id, operation: nil)
+                        Task { await self.refreshSingle(id: repo.id) }
                     }
                 }
             }
+        }
+    }
+    
+    // 创建 Tag
+    func createTagAndRefresh(for repo: GitRepo, version: String) async {
+        // 设置状态
+        updateRepoOperation(id: repo.id, operation: "Tagging...")
+        
+        // 后台执行
+        _ = await Task.detached {
+            return await GitService.createTag(repo: repo, version: version)
         }.value
         
-        await refreshAll()
+        // 恢复状态并刷新
+        updateRepoOperation(id: repo.id, operation: nil)
+        await refreshSingle(id: repo.id)
     }
     
     /// 计算仓库的建议下一个版本
@@ -258,26 +305,6 @@ final class RepoListViewModel: ObservableObject {
         // 使用 Version+Behavior 中的 nextVersion 方法
         let next = currentVersion.nextVersion()
         return next.description
-    }
-    
-    /// 创建标签并刷新
-    func createTagAndRefresh(for repo: GitRepo, version: String) async {
-        isRefreshing = true
-        defer { isRefreshing = false }
-        
-        // 在后台执行
-        let success = await Task.detached {
-            return await GitService.createTag(repo: repo, version: version)
-        }.value
-        
-        if success {
-            print("Tag \(version) created successfully for \(repo.name)")
-        } else {
-            print("Failed to create tag \(version)")
-        }
-        
-        // 刷新该仓库状态
-        await refreshSingle(id: repo.id)
     }
     
     func toggleSelectAll() {

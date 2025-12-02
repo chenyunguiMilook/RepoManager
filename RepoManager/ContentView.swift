@@ -54,8 +54,22 @@ struct ContentView: View {
                 }
                 .width(max: 100)
 
+                // [修改] 状态列：优先显示 active operation
                 TableColumn("状态", value: \.statusType) { repo in
-                    StatusBadge(type: repo.statusType, message: repo.statusMessage)
+                    if let operation = repo.currentOperation {
+                        // 显示活动指示器
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .controlSize(.small)
+                                .scaleEffect(0.7)
+                            Text(operation)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    } else {
+                        // 显示静态状态
+                        StatusBadge(type: repo.statusType, message: repo.statusMessage)
+                    }
                 }
                 
                 // [已移除] TableColumn("操作")
@@ -81,14 +95,18 @@ struct ContentView: View {
                     Button {
                         Task {
                             viewModel.selection = selectedIds
-                            await viewModel.batchOperation { await GitService.pull(repo: $0) }
+                            await viewModel.batchOperation(label: "Pulling") {
+                                await GitService.pull(repo: $0)
+                            }
                         }
                     } label: { Label("拉取 (Pull)", systemImage: "arrow.down") }
                     
                     Button {
                         Task {
                             viewModel.selection = selectedIds
-                            await viewModel.batchOperation { _ = await GitService.push(repo: $0) }
+                            await viewModel.batchOperation(label: "Pushing") {
+                                _ = await GitService.push(repo: $0)
+                            }
                         }
                     } label: { Label("推送 (Push)", systemImage: "arrow.up") }
                 }
