@@ -197,6 +197,39 @@ final class RepoListViewModel: ObservableObject {
         }
     }
     
+    func batchCommitAndPush(message: String, shouldPush: Bool) async {
+        // UI 进入 loading 状态
+        isRefreshing = true
+        defer { isRefreshing = false }
+        
+        let selectedRepos = repos.filter { selection.contains($0.id) }
+        
+        // 后台并发执行
+        await Task.detached(priority: .userInitiated) {
+            await withTaskGroup(of: Void.self) { group in
+                for repo in selectedRepos {
+                    group.addTask {
+                        // 1. Commit
+                        if repo.statusType == .dirty {
+                            let commitSuccess = await GitService.commit(repo: repo, message: message)
+                            
+                            // 2. Push (if enabled and commit succeeded or was clean)
+                            if shouldPush && commitSuccess {
+                                _ = await GitService.push(repo: repo)
+                            }
+                        } else if shouldPush {
+                            // 如果本来就是 clean 或者 ahead，直接尝试 push
+                            _ = await GitService.push(repo: repo)
+                        }
+                    }
+                }
+            }
+        }.value
+        
+        // 全部完成后刷新状态
+        await refreshAll()
+    }
+
     func batchOperation(action: @escaping @Sendable (GitRepo) async -> Void) async {
         isRefreshing = true
         defer { isRefreshing = false }

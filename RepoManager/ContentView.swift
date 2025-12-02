@@ -93,15 +93,14 @@ struct ContentView: View {
             }
         }
         .sheet(isPresented: $isShowingCommitAlert) {
-            CommitSheet(message: $commitMessage, isPresented: $isShowingCommitAlert) {
-                Task {
-                    await viewModel.batchOperation { repo in
-                        if repo.statusType == .dirty {
-                            _ = await GitService.commit(repo: repo, message: commitMessage)
-                        }
-                    }
+            CommitSheet(
+                message: $commitMessage,
+                isPresented: $isShowingCommitAlert,
+                // 这里传入异步闭包，View 会等待它完成
+                onCommit: { msg, push in
+                    await viewModel.batchCommitAndPush(message: msg, shouldPush: push)
                 }
-            }
+            )
         }
         .sheet(isPresented: $viewModel.isShowingImportSheet) {
             ImportSheetView(viewModel: viewModel)
@@ -175,28 +174,6 @@ struct BottomBarView: View {
     }
 }
 
-// 5. 提取 Commit Sheet
-struct CommitSheet: View {
-    @Binding var message: String
-    @Binding var isPresented: Bool
-    var onCommit: () -> Void
-    
-    var body: some View {
-        VStack(spacing: 20) {
-            Text("提交变更").font(.headline)
-            TextField("Message", text: $message).frame(width: 300)
-            HStack {
-                Button("取消") { isPresented = false }
-                Button("提交") {
-                    isPresented = false
-                    onCommit()
-                }
-                .keyboardShortcut(.defaultAction)
-            }
-        }
-        .padding()
-    }
-}
 
 struct StatusBadge: View {
     let type: RepoStatusType

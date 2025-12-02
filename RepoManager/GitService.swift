@@ -17,6 +17,8 @@ struct GitService {
         let task = Process()
         let pipe = Pipe()
         
+        // 注意：这里需确保 git 路径正确，有些环境可能是 /usr/local/bin/git
+        // 如果遇到问题，可以使用 "/usr/bin/env" 作为 executableURL，arguments 放 ["git", ...]
         task.executableURL = URL(fileURLWithPath: "/usr/bin/git")
         task.arguments = arguments
         task.currentDirectoryURL = URL(fileURLWithPath: path)
@@ -27,7 +29,6 @@ struct GitService {
             try task.run()
             task.waitUntilExit()
             
-            // 读取数据可能耗时，放在后台处理
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
             let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return (output, task.terminationStatus)
@@ -35,7 +36,7 @@ struct GitService {
             return ("Git execution failed: \(error.localizedDescription)", -1)
         }
     }
-    
+
     // 计算属性完全在后台进行，返回一个新的 Sendable Repo 对象
     nonisolated static func fetchStatus(for repo: GitRepo) async -> GitRepo {
         var newRepo = repo
@@ -98,6 +99,11 @@ struct GitService {
         return code == 0
     }
     
+    nonisolated static func push(repo: GitRepo) async -> Bool {
+        let (_, code) = await runCommand(["push"], at: repo.path)
+        return code == 0
+    }
+
     nonisolated static func sync(repo: GitRepo) async -> Bool {
         let (_, pullCode) = await runCommand(["pull", "--rebase"], at: repo.path)
         if pullCode != 0 { return false }
