@@ -42,8 +42,29 @@ struct GitService {
         var newRepo = repo
         let path = repo.path
         
-        // 1. 获取分支
+        // 1. 获取分支名称
+        // 如果是 Detached HEAD，git rev-parse --abbrev-ref HEAD 通常返回 "HEAD"
         let (branchOut, _) = await runCommand(["rev-parse", "--abbrev-ref", "HEAD"], at: path)
+        
+        // --- [新增] Detached HEAD 检测逻辑 ---
+        if branchOut == "HEAD" {
+            // 获取当前的短 Commit Hash
+            let (hashOut, _) = await runCommand(["rev-parse", "--short", "HEAD"], at: path)
+            newRepo.branch = "HEAD (\(hashOut))" // 显示为 HEAD (a1b2c3d)
+            newRepo.statusType = .detached
+            newRepo.statusMessage = "游离状态"
+            
+            // 游离状态下通常不需要检测 Ahead/Behind，因为没有默认的上游分支
+            // 但我们仍然需要检查 Dirty 状态
+            let (statusOut, _) = await runCommand(["status", "--porcelain"], at: path)
+            if !statusOut.isEmpty {
+                newRepo.statusMessage = "游离且未提交" // 组合提示
+            }
+            
+            return newRepo
+        }
+        
+        // 正常分支逻辑
         newRepo.branch = branchOut.isEmpty ? "Unknown" : branchOut
         
         // 2. Fetch

@@ -185,6 +185,7 @@ struct StatusBadge: View {
         case .dirty: return .yellow
         case .ahead: return .blue
         case .behind: return .purple
+        case .detached: return .orange // [新增] 游离状态使用橙色，提示警告
         case .diverged: return .orange
         case .error: return .red
         case .loading: return .gray
@@ -193,9 +194,14 @@ struct StatusBadge: View {
     
     var body: some View {
         HStack(spacing: 6) {
+            // 如果是 detached，可以用空心圆或者不同图标来区分，这里简单使用实心圆
             Circle().fill(color).frame(width: 8, height: 8)
-            Text(message).font(.caption)
+            
+            Text(message)
+                .font(.caption)
                 .foregroundColor(type == .clean ? .secondary : .primary)
+                // 如果是 Detached 状态，可以加粗提示
+                .fontWeight(type == .detached ? .medium : .regular)
         }
     }
 }
