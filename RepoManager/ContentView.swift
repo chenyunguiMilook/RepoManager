@@ -10,9 +10,12 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @StateObject private var viewModel = RepoListViewModel()
+    
+    // 弹窗状态
     @State private var isShowingCommitAlert = false
     @State private var commitMessage = ""
     @State private var isShowingForceAlert = false
+    @State private var isShowingSettings = false // 新增：控制设置弹窗
     
     @State private var searchText = ""
     @State private var sortOrder = [KeyPathComparator(\GitRepo.name)]
@@ -35,7 +38,6 @@ struct ContentView: View {
                 }
                 .width(min: 150)
                 
-                // [新增] 最新 Tag 列
                 TableColumn("Tag", value: \.latestTag) { repo in
                     Text(repo.latestTag)
                         .font(.system(.body, design: .monospaced))
@@ -51,15 +53,7 @@ struct ContentView: View {
                     StatusBadge(type: repo.statusType, message: repo.statusMessage)
                 }
                 
-                TableColumn("操作") { repo in
-                    RepoActionCell(
-                        repo: repo,
-                        viewModel: viewModel,
-                        isShowingCommitAlert: $isShowingCommitAlert,
-                        commitMessage: $commitMessage,
-                        isShowingForceAlert: $isShowingForceAlert
-                    )
-                }
+                // [已移除] TableColumn("操作")
             }
             .searchable(text: $searchText, placement: .toolbar, prompt: "搜索仓库名称...")
             .onChange(of: sortOrder) { newOrder in viewModel.sort(using: newOrder) }
@@ -67,87 +61,93 @@ struct ContentView: View {
                 Task { await viewModel.handleDrop(urls: items) }
                 return true
             }
-            // [修改] 右键菜单移到 Table 层级，针对 Selection 生效
-            // 这使得整行点击都有效
+            // MARK: - 右键菜单 (批量操作 + 详情)
             .contextMenu(forSelectionType: GitRepo.ID.self) { selectedIds in
-                // 获取当前右键选中的单个或多个 ID
-                // 通常只对“第一个选中项”或“所有选中项”进行操作
-                // 这里我们提供通用操作，以及针对单个项目的特定操作
-                if let firstId = selectedIds.first, let repo = viewModel.repos.first(where: { $0.id == firstId }) {
-                    
-                    // --- 针对特定项目的操作 ---
-                    
-                    // 1. [新增] 打开 Xcode 项目 (如果有)
-                    if let projectURL = repo.projectFileURL {
-                        Button {
-                            NSWorkspace.shared.open(projectURL)
-                        } label: {
-                            Text("Open Project in Xcode")
-                            Image(systemName: "hammer") // 或 "app.badge"
-                        }
-                        Divider()
-                    }
-                    
-                    // 2. 打开文件夹
+                // 1. 核心 Git 操作区 (针对所有选中项)
+                Section("批量操作 (\(selectedIds.count))") {
                     Button {
-                        let url = URL(fileURLWithPath: repo.path)
-                        NSWorkspace.shared.open(url)
-                    } label: {
-                        Text("Open in Finder")
-                        Image(systemName: "folder")
-                    }
-                    
-                    // 3. 在 Finder 中显示
-                    Button {
-                        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: repo.path)
-                    } label: {
-                        Text("Reveal in Finder")
-                        Image(systemName: "magnifyingglass")
-                    }
-                    
-                    // 4. 打开终端
-                    Button {
-                        let url = URL(fileURLWithPath: repo.path)
-                        if let terminalUrl = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") {
-                             NSWorkspace.shared.open([url], withApplicationAt: terminalUrl, configuration: NSWorkspace.OpenConfiguration(), completionHandler: nil)
+                        // 触发提交弹窗 (CommitSheet 会读取 viewModel.selection)
+                        // 注意：这里需要确保 viewModel.selection 包含了 selectedIds
+                        // 默认 SwiftUI Table 右键时会自动更新 selection，但手动同步一下更安全
+                        if !selectedIds.isEmpty {
+                            viewModel.selection = selectedIds
+                            commitMessage = ""
+                            isShowingCommitAlert = true
                         }
                     } label: {
-                        Text("Open in Terminal")
-                        Image(systemName: "terminal")
+                        Label("提交...", systemImage: "arrow.up.circle")
                     }
                     
-                    Divider()
-                    
-                    // 5. 复制路径
                     Button {
-                        let pasteboard = NSPasteboard.general
-                        pasteboard.clearContents()
-                        pasteboard.setString(repo.path, forType: .string)
+                        Task {
+                            // 临时保存 selection，防止异步过程中 UI 变化
+                            let targetIds = selectedIds
+                            // 既然没有 selection Binding 传入 batchOperation，
+                            // 我们需要确保 VM 操作的是这些 ID。
+                            // 简单做法：临时更新 VM selection，或者给 VM 加一个针对特定 IDs 的方法。
+                            // 这里假设 VM.batchOperation 总是操作 viewModel.selection。
+                            // 所以要在主线程先更新 selection
+                            viewModel.selection = targetIds
+                            await viewModel.batchOperation { await GitService.pull(repo: $0) }
+                        }
                     } label: {
-                        Text("Copy Path")
-                        Image(systemName: "doc.on.doc")
+                        Label("拉取 (Pull)", systemImage: "arrow.down")
                     }
                     
-                    Divider()
+                    Button {
+                        Task {
+                            let targetIds = selectedIds
+                            viewModel.selection = targetIds
+                            await viewModel.batchOperation { _ = await GitService.push(repo: $0) }
+                        }
+                    } label: {
+                        Label("推送 (Push)", systemImage: "arrow.up")
+                    }
                 }
                 
-                // --- 针对所有选中的通用操作 ---
-                Button("刷新选中 (\(selectedIds.count))") {
-                    Task {
-                        for id in selectedIds {
-                            await viewModel.refreshSingle(id: id)
+                Divider()
+                
+                // 2. 单项详情操作 (仅当选中单个，或者针对第一个选中项显示)
+                if let firstId = selectedIds.first, let repo = viewModel.repos.first(where: { $0.id == firstId }) {
+                    Section(repo.name) {
+                        if let projectURL = repo.projectFileURL {
+                            Button {
+                                NSWorkspace.shared.open(projectURL)
+                            } label: {
+                                Label("Open Project in Xcode", systemImage: "hammer")
+                            }
+                        }
+                        
+                        Button {
+                            NSWorkspace.shared.open(URL(fileURLWithPath: repo.path))
+                        } label: {
+                            Label("Open in Finder", systemImage: "folder")
+                        }
+                        
+                        Button {
+                            if let term = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") {
+                                NSWorkspace.shared.open([URL(fileURLWithPath: repo.path)], withApplicationAt: term, configuration: .init(), completionHandler: nil)
+                            }
+                        } label: {
+                            Label("Open in Terminal", systemImage: "terminal")
+                        }
+                        
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(repo.path, forType: .string)
+                        } label: {
+                            Label("Copy Path", systemImage: "doc.on.doc")
                         }
                     }
                 }
             }
             
+            // 底部栏
             BottomBarView(
                 viewModel: viewModel,
                 filteredCount: filteredRepos.count,
                 filteredIds: filteredRepos.map { $0.id },
-                isShowingCommitAlert: $isShowingCommitAlert,
-                commitMessage: $commitMessage,
-                isShowingForceAlert: $isShowingForceAlert
+                isShowingSettings: $isShowingSettings // 传递设置绑定
             )
         }
         .task {
@@ -166,6 +166,7 @@ struct ContentView: View {
                 .disabled(viewModel.isRefreshing)
             }
         }
+        // 弹窗层
         .sheet(isPresented: $isShowingCommitAlert) {
             CommitSheet(
                 message: $commitMessage,
@@ -178,13 +179,16 @@ struct ContentView: View {
         .sheet(isPresented: $viewModel.isShowingImportSheet) {
             ImportSheetView(viewModel: viewModel)
         }
-        .alert("确认强制同步？", isPresented: $isShowingForceAlert) {
-            Button("取消", role: .cancel) { }
-            Button("重置", role: .destructive) {
-                Task { await viewModel.batchOperation { _ = await GitService.forceSync(repo: $0) } }
-            }
-        } message: {
-            Text("此操作不可逆，将丢失所有本地未提交修改。")
+        // 设置弹窗 (macOS 14 也可以用 SettingsLink，这里用 Sheet 简单模拟或调用系统设置)
+        // 这里演示用 Sheet 打开 SettingsView，或者直接发送系统 Action
+        .sheet(isPresented: $isShowingSettings) {
+            SettingsView()
+                .frame(width: 450, height: 250)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("关闭") { isShowingSettings = false }
+                    }
+                }
         }
     }
     
@@ -202,17 +206,19 @@ struct ContentView: View {
     }
 }
 
+
 // 4. 顺便把底部栏也提取出来（可选，但推荐）
 struct BottomBarView: View {
     @ObservedObject var viewModel: RepoListViewModel
     let filteredCount: Int
     let filteredIds: [UUID]
-    @Binding var isShowingCommitAlert: Bool
-    @Binding var commitMessage: String
-    @Binding var isShowingForceAlert: Bool
+    
+    // 控制设置弹窗
+    @Binding var isShowingSettings: Bool
     
     var body: some View {
         HStack {
+            // 左侧：全选与计数
             Button("全选/反选") {
                 if viewModel.selection.count == filteredCount {
                     viewModel.selection.removeAll()
@@ -221,32 +227,45 @@ struct BottomBarView: View {
                 }
             }
             Text("已选: \(viewModel.selection.count)").foregroundColor(.secondary)
+            
             if viewModel.isRefreshing {
                 ProgressView().controlSize(.small).padding(.leading, 8)
+                Text("处理中...").font(.caption).foregroundColor(.secondary)
             }
+            
             Spacer()
-            Group {
-                Button("批量提交") {
-                    commitMessage = ""
-                    isShowingCommitAlert = true
+            
+            // 右侧：设置按钮 (Menu)
+            Menu {
+                Button {
+                    // 方法1: 打开应用内设置 View
+                    isShowingSettings = true
+                    
+                    // 方法2: 如果你更喜欢原生偏好设置窗口行为
+                    // NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                } label: {
+                    Label("偏好设置...", systemImage: "gear")
                 }
-                .disabled(viewModel.selection.isEmpty)
-                Button("批量同步") {
-                    Task { await viewModel.batchOperation { _ = await GitService.sync(repo: $0) } }
+                
+                Divider()
+                
+                Button(role: .destructive) {
+                    NSApplication.shared.terminate(nil)
+                } label: {
+                    Label("退出", systemImage: "power")
                 }
-                .disabled(viewModel.selection.isEmpty)
-                Button("强制同步") {
-                    isShowingForceAlert = true
-                }
-                .foregroundColor(.red)
-                .disabled(viewModel.selection.isEmpty)
+            } label: {
+                Image(systemName: "gearshape.fill")
+                    .font(.title3)
+                    .foregroundColor(.secondary)
             }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
         }
         .padding()
         .background(Color(NSColor.controlBackgroundColor))
     }
 }
-
 
 struct StatusBadge: View {
     let type: RepoStatusType

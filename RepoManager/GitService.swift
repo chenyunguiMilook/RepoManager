@@ -145,13 +145,19 @@ struct GitService {
         return code == 0
     }
 
-    nonisolated static func sync(repo: GitRepo) async -> Bool {
-        let (_, pullCode) = await runCommand(["pull", "--rebase"], at: repo.path)
-        if pullCode != 0 { return false }
-        let (_, pushCode) = await runCommand(["push"], at: repo.path)
-        return pushCode == 0
+    nonisolated static func pull(repo: GitRepo) async -> Bool {
+        // 使用 --rebase 保持提交历史整洁，如果不需要可去掉
+        let (_, code) = await runCommand(["pull", "--rebase"], at: repo.path)
+        return code == 0
     }
     
+    nonisolated static func sync(repo: GitRepo) async -> Bool {
+        if await pull(repo: repo) {
+            return await push(repo: repo)
+        }
+        return false
+    }
+
     nonisolated static func forceSync(repo: GitRepo) async -> Bool {
         _ = await runCommand(["fetch", "--all"], at: repo.path)
         let (_, code) = await runCommand(["reset", "--hard", "origin/\(repo.branch)"], at: repo.path)
