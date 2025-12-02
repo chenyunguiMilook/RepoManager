@@ -163,6 +163,16 @@ struct GitService {
         let (_, code) = await runCommand(["reset", "--hard", "origin/\(repo.branch)"], at: repo.path)
         return code == 0
     }
+    
+    nonisolated static func createTag(repo: GitRepo, version: String) async -> Bool {
+        // 1. 本地打标签
+        let (_, tagCode) = await runCommand(["tag", version], at: repo.path)
+        if tagCode != 0 { return false }
+        
+        // 2. 推送到远程
+        let (_, pushCode) = await runCommand(["push", "origin", version], at: repo.path)
+        return pushCode == 0
+    }
 }
 
 extension GitService {

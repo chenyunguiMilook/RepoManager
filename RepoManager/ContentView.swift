@@ -16,7 +16,11 @@ struct ContentView: View {
     @State private var commitMessage = ""
     @State private var isShowingForceAlert = false
     @State private var isShowingSettings = false // 新增：控制设置弹窗
-    
+    // [新增] 版本控制弹窗状态
+    @State private var isShowingVersionSheet = false
+    @State private var targetVersion = ""
+    @State private var selectedRepoForVersion: GitRepo? = nil
+
     @State private var searchText = ""
     @State private var sortOrder = [KeyPathComparator(\GitRepo.name)]
     
@@ -38,17 +42,17 @@ struct ContentView: View {
                 }
                 .width(min: 150)
                 
+                TableColumn("分支", value: \.branch) { repo in
+                    Text(repo.branch).font(.system(.body, design: .monospaced))
+                }
+                
                 TableColumn("Tag", value: \.latestTag) { repo in
                     Text(repo.latestTag)
                         .font(.system(.body, design: .monospaced))
                         .foregroundColor(.secondary)
                 }
                 .width(max: 100)
-                
-                TableColumn("分支", value: \.branch) { repo in
-                    Text(repo.branch).font(.system(.body, design: .monospaced))
-                }
-                
+
                 TableColumn("状态", value: \.statusType) { repo in
                     StatusBadge(type: repo.statusType, message: repo.statusMessage)
                 }
@@ -63,81 +67,64 @@ struct ContentView: View {
             }
             // MARK: - 右键菜单 (批量操作 + 详情)
             .contextMenu(forSelectionType: GitRepo.ID.self) { selectedIds in
-                // 1. 核心 Git 操作区 (针对所有选中项)
-                Section("批量操作 (\(selectedIds.count))") {
+                // 1. Git 批量操作
+                Section("Git 操作") {
                     Button {
-                        // 触发提交弹窗 (CommitSheet 会读取 viewModel.selection)
-                        // 注意：这里需要确保 viewModel.selection 包含了 selectedIds
-                        // 默认 SwiftUI Table 右键时会自动更新 selection，但手动同步一下更安全
                         if !selectedIds.isEmpty {
                             viewModel.selection = selectedIds
                             commitMessage = ""
                             isShowingCommitAlert = true
                         }
-                    } label: {
-                        Label("提交...", systemImage: "arrow.up.circle")
-                    }
+                    } label: { Label("提交...", systemImage: "arrow.up.circle") }
                     
                     Button {
                         Task {
-                            // 临时保存 selection，防止异步过程中 UI 变化
-                            let targetIds = selectedIds
-                            // 既然没有 selection Binding 传入 batchOperation，
-                            // 我们需要确保 VM 操作的是这些 ID。
-                            // 简单做法：临时更新 VM selection，或者给 VM 加一个针对特定 IDs 的方法。
-                            // 这里假设 VM.batchOperation 总是操作 viewModel.selection。
-                            // 所以要在主线程先更新 selection
-                            viewModel.selection = targetIds
+                            viewModel.selection = selectedIds
                             await viewModel.batchOperation { await GitService.pull(repo: $0) }
                         }
-                    } label: {
-                        Label("拉取 (Pull)", systemImage: "arrow.down")
-                    }
+                    } label: { Label("拉取 (Pull)", systemImage: "arrow.down") }
                     
                     Button {
                         Task {
-                            let targetIds = selectedIds
-                            viewModel.selection = targetIds
+                            viewModel.selection = selectedIds
                             await viewModel.batchOperation { _ = await GitService.push(repo: $0) }
                         }
-                    } label: {
-                        Label("推送 (Push)", systemImage: "arrow.up")
-                    }
+                    } label: { Label("推送 (Push)", systemImage: "arrow.up") }
                 }
                 
                 Divider()
                 
                 // 2. 单项详情操作 (仅当选中单个，或者针对第一个选中项显示)
                 if let firstId = selectedIds.first, let repo = viewModel.repos.first(where: { $0.id == firstId }) {
+                                    
+                    // [新增] 版本递增操作
+                    Button {
+                        // 1. 设置当前操作的仓库
+                        selectedRepoForVersion = repo
+                        // 2. 自动计算下一个版本
+                        targetVersion = viewModel.calculateNextVersion(for: repo)
+                        // 3. 显示弹窗
+                        isShowingVersionSheet = true
+                    } label: {
+                        Label("递增版本...", systemImage: "tag")
+                    }
+                    
+                    Divider()
+                    
                     Section(repo.name) {
                         if let projectURL = repo.projectFileURL {
-                            Button {
-                                NSWorkspace.shared.open(projectURL)
-                            } label: {
-                                Label("Open Project in Xcode", systemImage: "hammer")
-                            }
+                            Button { NSWorkspace.shared.open(projectURL) } label: { Label("Open Project in Xcode", systemImage: "hammer") }
                         }
-                        
-                        Button {
-                            NSWorkspace.shared.open(URL(fileURLWithPath: repo.path))
-                        } label: {
-                            Label("Open in Finder", systemImage: "folder")
-                        }
-                        
+                        Button { NSWorkspace.shared.open(URL(fileURLWithPath: repo.path)) } label: { Label("Open in Finder", systemImage: "folder") }
                         Button {
                             if let term = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") {
                                 NSWorkspace.shared.open([URL(fileURLWithPath: repo.path)], withApplicationAt: term, configuration: .init(), completionHandler: nil)
                             }
-                        } label: {
-                            Label("Open in Terminal", systemImage: "terminal")
-                        }
-                        
+                        } label: { Label("Open in Terminal", systemImage: "terminal") }
                         Button {
                             NSPasteboard.general.clearContents()
                             NSPasteboard.general.setString(repo.path, forType: .string)
-                        } label: {
-                            Label("Copy Path", systemImage: "doc.on.doc")
-                        }
+                        } label: { Label("Copy Path", systemImage: "doc.on.doc") }
                     }
                 }
             }
@@ -173,6 +160,19 @@ struct ContentView: View {
                 isPresented: $isShowingCommitAlert,
                 onCommit: { msg, push in
                     await viewModel.batchCommitAndPush(message: msg, shouldPush: push)
+                }
+            )
+        }
+        // [新增] Version Sheet
+        .sheet(isPresented: $isShowingVersionSheet) {
+            VersionSheet(
+                version: $targetVersion,
+                isPresented: $isShowingVersionSheet,
+                repoName: selectedRepoForVersion?.name ?? "",
+                onConfirm: { version in
+                    if let repo = selectedRepoForVersion {
+                        await viewModel.createTagAndRefresh(for: repo, version: version)
+                    }
                 }
             )
         }

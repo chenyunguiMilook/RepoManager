@@ -249,6 +249,37 @@ final class RepoListViewModel: ObservableObject {
         await refreshAll()
     }
     
+    /// 计算仓库的建议下一个版本
+    func calculateNextVersion(for repo: GitRepo) -> String {
+        let currentTag = repo.latestTag
+        // 尝试解析当前 Tag，如果失败 (比如是 "-" 或空)，则默认为 0.0.0
+        let currentVersion = Version(string: currentTag) ?? Version(0, 0, 0)
+        
+        // 使用 Version+Behavior 中的 nextVersion 方法
+        let next = currentVersion.nextVersion()
+        return next.description
+    }
+    
+    /// 创建标签并刷新
+    func createTagAndRefresh(for repo: GitRepo, version: String) async {
+        isRefreshing = true
+        defer { isRefreshing = false }
+        
+        // 在后台执行
+        let success = await Task.detached {
+            return await GitService.createTag(repo: repo, version: version)
+        }.value
+        
+        if success {
+            print("Tag \(version) created successfully for \(repo.name)")
+        } else {
+            print("Failed to create tag \(version)")
+        }
+        
+        // 刷新该仓库状态
+        await refreshSingle(id: repo.id)
+    }
+    
     func toggleSelectAll() {
         if selection.count == repos.count {
             selection.removeAll()
