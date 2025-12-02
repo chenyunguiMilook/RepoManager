@@ -134,6 +134,11 @@ struct ContentView: View {
                     Divider()
                     
                     Section(repo.name) {
+                        Button {
+                            openInSourceTree(path: repo.path)
+                        } label: {
+                            Label("Open in SourceTree", systemImage: "arrow.triangle.branch")
+                        }
                         if let projectURL = repo.projectFileURL {
                             Button { NSWorkspace.shared.open(projectURL) } label: { Label("Open Project in Xcode", systemImage: "hammer") }
                         }
@@ -263,6 +268,38 @@ struct ContentView: View {
         
         if let url = URL(string: urlStr) {
             NSWorkspace.shared.open(url)
+        }
+    }
+    
+    // [新增] 打开 SourceTree 的逻辑
+    func openInSourceTree(path: String) {
+        let repoURL = URL(fileURLWithPath: path)
+        
+        // 1. 尝试使用命令行工具 `stree` (通常安装在 /usr/local/bin/stree)
+        let streePath = "/usr/local/bin/stree"
+        if FileManager.default.fileExists(atPath: streePath) {
+            do {
+                let task = Process()
+                task.executableURL = URL(fileURLWithPath: streePath)
+                task.arguments = [path]
+                try task.run()
+                return // 如果命令执行成功，直接返回
+            } catch {
+                print("Failed to run stree command: \(error)")
+            }
+        }
+        
+        // 2. 兜底方案：直接通过 NSWorkspace 查找并打开 SourceTree 应用程序
+        // SourceTree 的 Bundle Identifier 通常是 com.torusknot.SourceTreeNotMAS
+        if let appUrl = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.torusknot.SourceTreeNotMAS") {
+            NSWorkspace.shared.open([repoURL], withApplicationAt: appUrl, configuration: .init(), completionHandler: nil)
+        } else {
+            // 3. 最后的尝试：直接用 `open` 命令打开应用
+            // 这对那些安装在非标准路径但已注册的应用有效
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+            task.arguments = ["-a", "SourceTree", path]
+            try? task.run()
         }
     }
 }
