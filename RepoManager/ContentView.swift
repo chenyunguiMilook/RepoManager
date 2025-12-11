@@ -170,6 +170,31 @@ struct ContentView: View {
                             NSPasteboard.general.clearContents()
                             NSPasteboard.general.setString(repo.path, forType: .string)
                         } label: { Label("Copy Path", systemImage: "doc.on.doc") }
+                        
+                        Divider()
+
+                        Button(role: .destructive) {
+                            Task {
+                                await MainActor.run { viewModel.updateRepoOperation(id: repo.id, operation: "Cleaning .build...") }
+
+                                let buildURL = URL(fileURLWithPath: repo.path).appendingPathComponent(".build")
+                                let fm = FileManager.default
+                                if fm.fileExists(atPath: buildURL.path) {
+                                    do {
+                                        try fm.removeItem(at: buildURL)
+                                    } catch {
+                                        print("Failed to remove .build: \(error)")
+                                    }
+                                }
+
+                                await MainActor.run {
+                                    viewModel.updateRepoOperation(id: repo.id, operation: nil)
+                                    Task { await viewModel.refreshSingle(id: repo.id) }
+                                }
+                            }
+                        } label: {
+                            Label("清理 .build", systemImage: "trash")
+                        }
                     }
                 }
             }
