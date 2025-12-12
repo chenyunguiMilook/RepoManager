@@ -166,6 +166,10 @@ struct ContentView: View {
                                 NSWorkspace.shared.open([URL(fileURLWithPath: repo.path)], withApplicationAt: term, configuration: .init(), completionHandler: nil)
                             }
                         } label: { Label("Open in Terminal", systemImage: "terminal") }
+                        
+                        Button {
+                            repo.openInVSCode()
+                        } label: { Label("Open in VSCode", systemImage: "chevron.left.slash.chevron.right") }
                         Button {
                             NSPasteboard.general.clearContents()
                             NSPasteboard.general.setString(repo.path, forType: .string)
@@ -177,14 +181,10 @@ struct ContentView: View {
                             Task {
                                 await MainActor.run { viewModel.updateRepoOperation(id: repo.id, operation: "Cleaning .build...") }
 
-                                let buildURL = URL(fileURLWithPath: repo.path).appendingPathComponent(".build")
-                                let fm = FileManager.default
-                                if fm.fileExists(atPath: buildURL.path) {
-                                    do {
-                                        try fm.removeItem(at: buildURL)
-                                    } catch {
-                                        print("Failed to remove .build: \(error)")
-                                    }
+                                let cleaned = await Task.detached { repo.cleanBuildDirectory() }.value
+                                if !cleaned {
+                                    // 失败时可在将来扩展为显示 Alert
+                                    print("clean .build failed for: \(repo.path)")
                                 }
 
                                 await MainActor.run {
@@ -345,6 +345,8 @@ struct ContentView: View {
             try? task.run()
         }
     }
+
+    
 }
 
 
