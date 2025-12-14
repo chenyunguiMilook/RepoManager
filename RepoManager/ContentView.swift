@@ -39,10 +39,9 @@ struct ContentView: View {
         VStack(spacing: 0) {
             Table(filteredRepos, selection: $viewModel.selection, sortOrder: $sortOrder) {
                 TableColumn("仓库名称", value: \.name) { repo in
-                    RepoNameCell(repo: repo)
-                        .onTapGesture(count: 2) {
-                            repo.openInVSCode()
-                        }
+                    RepoNameCell(repo: repo) {
+                        repo.openInVSCode()
+                    }
                 }
                 .width(min: 150)
                 

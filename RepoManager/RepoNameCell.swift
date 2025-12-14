@@ -11,6 +11,12 @@ import Foundation
 
 struct RepoNameCell: View {
     let repo: GitRepo
+    let onDoubleClick: (() -> Void)?
+
+    init(repo: GitRepo, onDoubleClick: (() -> Void)? = nil) {
+        self.repo = repo
+        self.onDoubleClick = onDoubleClick
+    }
     
     var body: some View {
         VStack(alignment: .leading) {
@@ -18,8 +24,13 @@ struct RepoNameCell: View {
             Text(repo.path).font(.caption).foregroundColor(.secondary)
         }
         .padding(.vertical, 4)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        // 注意：移除了 contentShape 和 contextMenu，
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        // 让整块区域都可点击（否则双击只能点到文字附近）
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) {
+            onDoubleClick?()
+        }
+        // 注意：这里不要加 contextMenu，
         // 因为现在由 Table 的 contextMenu(forSelectionType:) 接管
     }
 }
