@@ -23,6 +23,7 @@ struct ContentView: View {
 
     @State private var searchText = ""
     @State private var sortOrder = [KeyPathComparator(\GitRepo.name)]
+    @FocusState private var isSearchFocused: Bool
     
     var filteredRepos: [GitRepo] {
         if searchText.isEmpty {
@@ -39,11 +40,15 @@ struct ContentView: View {
             Table(filteredRepos, selection: $viewModel.selection, sortOrder: $sortOrder) {
                 TableColumn("仓库名称", value: \.name) { repo in
                     RepoNameCell(repo: repo)
+                        .onTapGesture(count: 2) {
+                            repo.openInVSCode()
+                        }
                 }
                 .width(min: 150)
                 
                 TableColumn("分支", value: \.branch) { repo in
-                    Text(repo.branch).font(.system(.body, design: .monospaced))
+                    Text(repo.branch)
+                        .font(.system(.body, design: .monospaced))
                 }
                 
                 TableColumn("Tag", value: \.latestTag) { repo in
@@ -75,6 +80,7 @@ struct ContentView: View {
                 // [已移除] TableColumn("操作")
             }
             .searchable(text: $searchText, placement: .toolbar, prompt: "搜索仓库名称...")
+            .searchFocused($isSearchFocused)
             .onChange(of: sortOrder) { newOrder in viewModel.sort(using: newOrder) }
             .dropDestination(for: URL.self) { items, location in
                 Task { await viewModel.handleDrop(urls: items) }
@@ -208,6 +214,8 @@ struct ContentView: View {
             )
         }
         .task {
+            // 窗口打开时自动聚焦搜索框，立即可输入
+            await MainActor.run { isSearchFocused = true }
             try? await Task.sleep(nanoseconds: 500_000_000)
             await viewModel.refreshAll()
             viewModel.sort(using: sortOrder)
