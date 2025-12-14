@@ -78,6 +78,13 @@ struct ContentView: View {
                 
                 // [已移除] TableColumn("操作")
             }
+            .onTapGesture(count: 2) {
+                // 双击打开第一个选中的仓库
+                if let firstId = viewModel.selection.first,
+                   let repo = viewModel.repos.first(where: { $0.id == firstId }) {
+                    repo.openInVSCode()
+                }
+            }
             .searchable(text: $searchText, placement: .toolbar, prompt: "搜索仓库名称...")
             .searchFocused($isSearchFocused)
             .onChange(of: sortOrder) { newOrder in viewModel.sort(using: newOrder) }

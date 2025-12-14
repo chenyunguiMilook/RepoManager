@@ -25,12 +25,7 @@ struct RepoNameCell: View {
         }
         .padding(.vertical, 4)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        // 让整块区域都可点击（否则双击只能点到文字附近）
-        .contentShape(Rectangle())
-        .onTapGesture(count: 2) {
-            onDoubleClick?()
-        }
-        // 注意：这里不要加 contextMenu，
-        // 因为现在由 Table 的 contextMenu(forSelectionType:) 接管
+        // 移除 .contentShape 和 .onTapGesture，让 Table 原生处理选择
+        // 双击功能移至 ContentView 的 Table 层级处理
     }
 }

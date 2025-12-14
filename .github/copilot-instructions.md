@@ -1,52 +1,100 @@
-# RepoManager — Copilot 指南
+# RepoManager — AI Coding Assistant Guide
 
-以下说明旨在帮助 AI 编码助手快速上手并在本代码库中安全、有效地提交更改。内容基于可在仓库中发现的实现与约定。
+A macOS SwiftUI app for managing multiple Git repositories: batch operations, status monitoring, version tagging, and external tool integration.
 
-核心架构（大局）
-- UI: `RepoManager/RepoManager/ContentView.swift` 是 SwiftUI 主视图，表格 + 底部栏驱动主要交互。
-- 状态与业务逻辑: `RepoListViewModel` (`RepoListViewModel.swift`) 为 @MainActor 的 ObservableObject，负责仓库列表的持久化、并发刷新、批量操作与导入流程。
-- Git 操作: `GitService` (`GitService.swift`) 封装对命令行 `git` 的调用（`runCommand`、`fetchStatus`、`commit`、`push` 等）。它使用 `nonisolated` 函数以便在后台线程执行。
-- 启动与集成: `AppStartManager` 管理登录项（ServiceManagement），`RepoManagerApp.swift` 配置主窗口、菜单栏项与设置。
+## Architecture Overview
 
-必须注意的项目约定与模式
-- 线程与 Actor:
-  - ViewModel 标注 `@MainActor`；对 UI 的更新应在 MainActor 上进行。
-  - `GitService` 使用 `nonisolated` 以便从后台调用。重写或新增异步工具函数时，遵循现有的 `nonisolated` vs `@MainActor` 分界。
-- 并发模式:
-  - 使用 `Task.detached` 和 `withTaskGroup` 进行后台并发扫描/刷新（见 `RepoListViewModel.refreshAll()`）。保留 `currentOperation` 字段以避免覆盖并发中用户触发的状态。
-- 持久化:
-  - 仓库列表保存在 Application Support 下的 `GitHubble/repos.json`（见 `RepoListViewModel.savePath`）。修改数据模型需兼容 JSON 编解码。
-- Git 路径与环境:
-  - `GitService.runCommand` 默认使用 `/usr/bin/git`。在 CI 或不同用户环境中，`git` 可位于 `/usr/local/bin/git` 或需通过 `/usr/bin/env git` 调用；对路径敏感的改动需保留注释并提供回退方案。
-- 本地工具集成:
-  - 项目会尝试调用外部工具：`stree`（SourceTree 命令行）、`open`、`NSWorkspace` 与 `SMAppService`。新增集成时，请提供优雅降级（检测路径/Bundle ID 后再调用）。
+**Three-Layer Structure:**
+- **UI Layer:** `ContentView.swift` — SwiftUI Table + toolbar + context menus for repo management
+- **State Layer:** `RepoListViewModel.swift` — `@MainActor` ObservableObject managing repos array, persistence, concurrent refresh, and import workflow
+- **Git Layer:** `GitService.swift` — `nonisolated` static functions wrapping `/usr/bin/git` commands with structured output parsing
 
-典型开发/调试命令
-- 打开工程（推荐 Xcode）：
-  - `open RepoManager/RepoManager.xcodeproj` 或直接在 Xcode 中打开 `RepoManager.xcodeproj`。
-- 命令行构建（无签名/仅本地构建验证）：
-  - 构建: `xcodebuild -project RepoManager.xcodeproj -scheme RepoManager -configuration Debug build`
-  - 测试: `xcodebuild test -project RepoManager.xcodeproj -scheme RepoManager -destination 'platform=macOS'`
-  - 注意：CI/打包时可能需要工作区、签名与正确 scheme，优先使用 Xcode 运行以避免签名问题。
+**Data Model:** `GitRepo` (in `RepoStatusType.swift`) — `Identifiable, Codable, Sendable` struct. Only `id`, `path`, `name` persist to disk; runtime fields (`branch`, `statusType`, `latestTag`, `currentOperation`) are refreshed on launch.
 
-项目中常见代码片段与说明（可直接引用）
-- 获取仓库状态并判断 branch/dirty/ahead/behind: `GitService.fetchStatus(for:)` — 若你修改分支状态逻辑，请保留对 `statusType` 与 `statusMessage` 的兼容写法。
-- 批量操作模式: `RepoListViewModel.batchOperation(label:action:)` — 首先设置每个选中项的 `currentOperation`，并在后台执行后回到主线程清理并刷新对应仓库条目。
-- 导入流程: `handleDrop(urls:)` 会尝试判断是否为 Git 仓库或扫描一级子目录，导入候选者会使用 `myProjectList` 优先选中常用项目名。
+**Supporting Components:**
+- `AppStartManager.swift` — Login item management via `SMAppService`
+- `GitRepo+Actions.swift` — File system operations (open in VSCode, clean `.build`)
+- `Version.swift` + `Version+Behavior.swift` — Semantic version parsing and increment logic
+- `RepoManagerApp.swift` — Window/MenuBar/Settings scene configuration
 
-修改/添加规则（仅修改可被测试/运行的代码）
-- 在对异步/并发代码做修改前，确保遵循 Actor 隔离（不要在非 MainActor 线程直接修改 `@Published` 属性）。
-- 修改 `GitService.runCommand` 时保留对输出与 exit code 的返回约定 `(output: String, exitCode: Int32)`，以便现有调用方无需改动。
-- 如果新增持久化字段，请同步更新 JSON 编解码器与 `loadFromDisk`/`saveToDisk`。
+## Critical Concurrency Patterns
 
-重要文件参考（快速索引）
-- `RepoManager/RepoManager/GitService.swift` — Git CLI 封装与扫描逻辑
-- `RepoManager/RepoManager/RepoListViewModel.swift` — 核心业务：刷新、批量操作、持久化、导入
-- `RepoManager/RepoManager/ContentView.swift` — 主 UI、右键菜单、工具栏、拖放与辅助函数（openInBrowser/openInSourceTree）
-- `RepoManager/RepoManager/RepoManagerApp.swift` — Scene/menus/settings/StatusBarExtra
-- `RepoManager/RepoManager/Version+Behavior.swift` — 版本号解析与递增策略（用于 `calculateNextVersion`）
+**Actor Isolation:**
+- ViewModel is `@MainActor` — all `@Published` property updates must occur on main thread
+- `GitService` functions are `nonisolated` — designed for background execution
+- When adding async helpers, maintain this boundary: UI state on MainActor, I/O operations nonisolated
 
-如果内容有遗漏或你希望我补充：请指出希望更详细的部分（例如 CI 流程、特定接口说明或更多代码示例）。
+**Parallel Execution:**
+```swift
+// Pattern in refreshAll(): Task.detached + withTaskGroup
+let repoUpdates = await Task.detached(priority: .userInitiated) {
+    return await withTaskGroup(of: (UUID, GitRepo).self) { group in
+        for repo in snapshot {
+            group.addTask { (repo.id, await GitService.fetchStatus(for: repo)) }
+        }
+        return await group.reduce(into: []) { $0.append($1) }
+    }
+}.value
+```
 
----
-请审阅此草案并告诉我需要补充或精简的部分。准备根据反馈迭代。 
+**Operation State:** `GitRepo.currentOperation: String?` prevents UI flicker during concurrent operations. Set before async work, clear after. See `batchOperation(label:action:)` for pattern.
+
+## Persistence & Data Flow
+
+**Storage:** `~/Library/Application Support/GitHubble/repos.json` stores only `[{id, path, name}]`. Runtime status rebuilt via `GitService.fetchStatus()` on app launch (triggered from View's `.task {}`).
+
+**Codable Constraints:** `GitRepo.CodingKeys` explicitly omits transient fields. Adding persistent fields requires:
+1. Add to `CodingKeys` enum
+2. Update `loadFromDisk()` migration logic if needed
+3. Ensure `Sendable` conformance (value types or immutable references)
+
+## Git Integration Details
+
+**Command Execution:** `GitService.runCommand(_ args: [String], at path: String)` returns `(output: String, exitCode: Int32)`. Hardcoded to `/usr/bin/git`; if adding CI support, check for `/usr/local/bin/git` or use `/usr/bin/env git`.
+
+**Status Detection Pattern:**
+```swift
+// In fetchStatus(for:) — typical sequence:
+1. Get remote URL: git remote get-url origin
+2. Detect project file: scan for .xcodeproj/Package.swift
+3. Latest tag: git describe --tags --abbrev=0
+4. Check if tag is at HEAD: compare git rev-parse HEAD vs git rev-list -n 1 <tag>
+5. Branch status: git rev-parse --abbrev-ref HEAD (handle "HEAD" = detached)
+6. Dirty check: git status --porcelain
+7. Ahead/behind: git rev-list --count @{u}..HEAD and HEAD..@{u}
+```
+
+**Status Priority:** `RepoStatusType` implements `Comparable` for table sorting: error > detached > diverged > dirty > behind > ahead > clean > loading.
+
+## External Tool Integration
+
+**Pattern (see `GitRepo+Actions.swift`):**
+1. Check for CLI tool: `FileManager.default.fileExists(atPath: "/usr/local/bin/code")`
+2. Try direct execution
+3. Fallback to `/usr/bin/env <tool>`
+4. Final fallback: `NSWorkspace.shared.urlForApplication(withBundleIdentifier:)` or `open -a`
+
+**Integrated Tools:** VSCode (`code` CLI or bundle ID), SourceTree (`stree`), Xcode, Terminal, Finder.
+
+## Common Workflows
+
+**Building:** Open `RepoManager.xcodeproj` in Xcode (project file is in repo root, not under `RepoManager/` subdirectory). Command-line builds work but require proper signing for distribution:
+```bash
+xcodebuild -project RepoManager.xcodeproj -scheme RepoManager -configuration Debug build
+xcodebuild test -project RepoManager.xcodeproj -scheme RepoManager -destination 'platform=macOS'
+```
+
+**Adding Features:**
+- New Git operations → Add `nonisolated static func` to `GitService`
+- New batch actions → Follow `batchOperation()` pattern in ViewModel
+- New UI columns → Update `Table` in `ContentView`, ensure `KeyPathComparator` compatibility
+
+**Debugging:** `currentOperation` field is your friend. Set it to describe long-running tasks for user visibility.
+
+## Key Files Reference
+- `GitService.swift` — Git command wrappers and repo scanning
+- `RepoListViewModel.swift` — State management, persistence, batch operations
+- `RepoStatusType.swift` — Data model (`GitRepo`, `RepoStatusType` enum with sort priority)
+- `ContentView.swift` — Main UI, context menus, drag-and-drop import
+- `GitRepo+Actions.swift` — External tool integrations with fallback chains
+- `Version+Behavior.swift` — Semantic version increment logic for tagging workflow 
