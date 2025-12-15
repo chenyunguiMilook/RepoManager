@@ -39,9 +39,7 @@ struct ContentView: View {
         VStack(spacing: 0) {
             Table(filteredRepos, selection: $viewModel.selection, sortOrder: $sortOrder) {
                 TableColumn("仓库名称", value: \.name) { repo in
-                    RepoNameCell(repo: repo) {
-                        repo.openInVSCode()
-                    }
+                    RepoNameCell(repo: repo)
                 }
                 .width(min: 150)
                 
@@ -75,15 +73,50 @@ struct ContentView: View {
                         StatusBadge(type: repo.statusType, message: repo.statusMessage)
                     }
                 }
+
+                // [新增] 快捷打开列：点击图标即可用对应应用打开
+                TableColumn("打开") { repo in
+                    HStack(spacing: 8) {
+                        Button {
+                            if let projectURL = repo.projectFileURL {
+                                NSWorkspace.shared.open(projectURL)
+                            }
+                        } label: {
+                            Image(systemName: "hammer")
+                        }
+                        .help("Open Project in Xcode")
+                        .disabled(repo.projectFileURL == nil)
+
+                        Button {
+                            repo.openInVSCode()
+                        } label: {
+                            Image(systemName: "chevron.left.slash.chevron.right")
+                        }
+                        .help("Open in VS Code")
+
+                        Button {
+                            if let terminalApp = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") {
+                                NSWorkspace.shared.open([URL(fileURLWithPath: repo.path)], withApplicationAt: terminalApp, configuration: .init(), completionHandler: nil)
+                            }
+                        } label: {
+                            Image(systemName: "terminal")
+                        }
+                        .help("Open in Terminal")
+
+                        Button {
+                            openInSourceTree(path: repo.path)
+                        } label: {
+                            Image(systemName: "arrow.triangle.branch")
+                        }
+                        .help("Open in SourceTree")
+                    }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .controlSize(.small)
+                }
+                .width(min: 120, ideal: 140)
                 
                 // [已移除] TableColumn("操作")
-            }
-            .onTapGesture(count: 2) {
-                // 双击打开第一个选中的仓库
-                if let firstId = viewModel.selection.first,
-                   let repo = viewModel.repos.first(where: { $0.id == firstId }) {
-                    repo.openInVSCode()
-                }
             }
             .searchable(text: $searchText, placement: .toolbar, prompt: "搜索仓库名称...")
             .searchFocused($isSearchFocused)
