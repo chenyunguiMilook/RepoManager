@@ -1,5 +1,5 @@
 import Foundation
-import Carbon
+import Carbon.HIToolbox
 import Carbon.HIToolbox
 
 @MainActor

@@ -6,7 +6,7 @@
 //
 
 import SwiftUI
-import Carbon
+import Carbon.HIToolbox
 
 @main
 struct RepoManagerApp: App {
@@ -85,19 +85,44 @@ struct RepoManagerApp: App {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let hotKeyManager = HotKeyManager()
+    static var shared: AppDelegate?
+    
+    private(set) var hotKeyManager = HotKeyManager()
+    private var hotKeySettings: HotKeySettings?
+    private var settingsObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Default hotkey: F5
-        // Key code 96 = F5 on macOS (ANSI/US layout).
+        AppDelegate.shared = self
+        
+        // 初始化快捷键设置
+        hotKeySettings = HotKeySettings.shared
+        
         hotKeyManager.onHotKey = {
             Task { @MainActor in
                 WindowPositioningController.shared.showMainWindowUnderMouse()
             }
         }
-        hotKeyManager.register(
-            keyCode: 96,
-            modifiers: 0
-        )
+        
+        // 用保存的设置注册快捷键
+        if let settings = hotKeySettings {
+            hotKeyManager.register(keyCode: settings.keyCode, modifiers: settings.modifiers)
+            
+            // 监听快捷键设置变化，动态更新
+            settingsObserver = NotificationCenter.default.addObserver(
+                forName: NSNotification.Name("HotKeySettingsDidChange"),
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                if let settings = self?.hotKeySettings {
+                    self?.hotKeyManager.reregister(with: settings)
+                }
+            }
+        }
+    }
+    
+    deinit {
+        if let observer = settingsObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
 }

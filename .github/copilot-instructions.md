@@ -91,10 +91,40 @@ xcodebuild test -project RepoManager.xcodeproj -scheme RepoManager -destination 
 
 **Debugging:** `currentOperation` field is your friend. Set it to describe long-running tasks for user visibility.
 
+## Global Hotkey Management
+
+**Architecture:** Three-component system for customizable global hotkeys:
+1. **`HotKeyManager`** — Carbon API wrapper, registers/unregisters hotkeys, triggers callbacks
+2. **`HotKeySettings`** — Persists keyCode + modifiers to UserDefaults, formats readable display strings
+3. **`HotKeyRecorder`** — SwiftUI UI for recording new hotkey combinations
+
+**Key Pattern:** When user changes hotkey in settings:
+```swift
+// HotKeySettings observer posts notification
+private func notifyChange() {
+    NotificationCenter.default.post(name: NSNotification.Name("HotKeySettingsDidChange"), object: nil)
+}
+
+// AppDelegate listens and reregisters
+settingsObserver = NotificationCenter.default.addObserver(
+    forName: NSNotification.Name("HotKeySettingsDidChange"),
+    object: nil,
+    queue: .main
+) { [weak self] _ in
+    self?.hotKeyManager.reregister(with: self?.hotKeySettings)
+}
+```
+
+**Default Hotkey:** F5 (keyCode: 96, modifiers: 0). Customizable via Settings → Hotkey tab.
+
 ## Key Files Reference
 - `GitService.swift` — Git command wrappers and repo scanning
 - `RepoListViewModel.swift` — State management, persistence, batch operations
 - `RepoStatusType.swift` — Data model (`GitRepo`, `RepoStatusType` enum with sort priority)
 - `ContentView.swift` — Main UI, context menus, drag-and-drop import
 - `GitRepo+Actions.swift` — External tool integrations with fallback chains
-- `Version+Behavior.swift` — Semantic version increment logic for tagging workflow 
+- `Version+Behavior.swift` — Semantic version increment logic for tagging workflow
+- `HotKeyManager.swift` — Global hotkey registration using Carbon API
+- `HotKeySettings.swift` — Hotkey configuration persistence and display formatting
+- `HotKeyRecorder.swift` — SwiftUI hotkey recording UI component
+- `AppDelegate.swift` — App lifecycle, hotkey initialization and notification handling 

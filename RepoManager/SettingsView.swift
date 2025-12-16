@@ -10,6 +10,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @StateObject private var startManager = AppStartManager.shared
+    @StateObject private var hotKeySettings = HotKeySettings.shared
     
     var body: some View {
         TabView {
@@ -17,8 +18,13 @@ struct SettingsView: View {
                 .tabItem {
                     Label("通用", systemImage: "gear")
                 }
+            
+            HotKeySettingsView(settings: hotKeySettings)
+                .tabItem {
+                    Label("快捷键", systemImage: "keyboard")
+                }
         }
-        .frame(width: 450, height: 250) // 设定一个标准的固定大小
+        .frame(width: 450, height: 300)
     }
 }
 

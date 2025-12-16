@@ -1,5 +1,5 @@
 import Foundation
-import Carbon
+import Carbon.HIToolbox
 
 /// Lightweight global hotkey wrapper using Carbon.
 /// Works even when the app is not key, as long as the app process is running.
@@ -44,6 +44,11 @@ final class HotKeyManager {
             RemoveEventHandler(eventHandlerRef)
             self.eventHandlerRef = nil
         }
+    }
+    
+    /// 重新注册快捷键（用于动态修改）
+    func reregister(with settings: HotKeySettings) {
+        register(keyCode: settings.keyCode, modifiers: settings.modifiers)
     }
 
     deinit {
