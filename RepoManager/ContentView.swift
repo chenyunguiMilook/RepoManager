@@ -141,6 +141,11 @@ struct ContentView: View {
             }
             .searchable(text: $searchText, placement: .toolbar, prompt: "搜索仓库名称...")
             .searchFocused($isSearchFocused)
+            .onChange(of: isSearchFocused) { focused in
+                if focused {
+                    InputSourceManager.switchToEnglish()
+                }
+            }
             .onReceive(NotificationCenter.default.publisher(for: .focusRepoSearchField)) { _ in
                 isSearchFocused = true
             }
@@ -284,7 +289,9 @@ struct ContentView: View {
         }
         .task {
             // 窗口打开时自动聚焦搜索框，立即可输入
-            await MainActor.run { isSearchFocused = true }
+            await MainActor.run {
+                isSearchFocused = true
+            }
             try? await Task.sleep(nanoseconds: 500_000_000)
             await viewModel.refreshAll()
             viewModel.sort(using: sortOrder)
