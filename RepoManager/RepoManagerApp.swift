@@ -6,9 +6,11 @@
 //
 
 import SwiftUI
+import Carbon
 
 @main
 struct RepoManagerApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     // 1. 获取打开窗口的环境变量
     @Environment(\.openWindow) private var openWindow
 
@@ -17,6 +19,15 @@ struct RepoManagerApp: App {
         Window("Repo Manager", id: "MainWindow") {
             ContentView()
                 .frame(minWidth: 800, minHeight: 600)
+                .background(WindowAccessor { window in
+                    WindowPositioningController.shared.registerMainWindow(window)
+                })
+                .task {
+                    // Bridge SwiftUI's openWindow into the controller so hotkey can recreate the window.
+                    WindowPositioningController.shared.openMainWindow = {
+                        openWindow(id: "MainWindow")
+                    }
+                }
         }
         // 移除标准菜单中的 "新建窗口" 选项，防止通过 Cmd+N 创建窗口
         .commands {
@@ -70,5 +81,23 @@ struct RepoManagerApp: App {
             }
             .keyboardShortcut("q")
         }
+    }
+}
+
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    private let hotKeyManager = HotKeyManager()
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // Default hotkey: F5
+        // Key code 96 = F5 on macOS (ANSI/US layout).
+        hotKeyManager.onHotKey = {
+            Task { @MainActor in
+                WindowPositioningController.shared.showMainWindowUnderMouse()
+            }
+        }
+        hotKeyManager.register(
+            keyCode: 96,
+            modifiers: 0
+        )
     }
 }
