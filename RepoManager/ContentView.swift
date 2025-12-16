@@ -8,6 +8,10 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+extension Notification.Name {
+    static let focusRepoSearchField = Notification.Name("RepoManager.focusRepoSearchField")
+}
+
 struct ContentView: View {
     @StateObject private var viewModel = RepoListViewModel()
     
@@ -120,6 +124,9 @@ struct ContentView: View {
             }
             .searchable(text: $searchText, placement: .toolbar, prompt: "搜索仓库名称...")
             .searchFocused($isSearchFocused)
+            .onReceive(NotificationCenter.default.publisher(for: .focusRepoSearchField)) { _ in
+                isSearchFocused = true
+            }
             .onChange(of: sortOrder) { newOrder in viewModel.sort(using: newOrder) }
             .dropDestination(for: URL.self) { items, location in
                 Task { await viewModel.handleDrop(urls: items) }

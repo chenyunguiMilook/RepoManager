@@ -52,6 +52,9 @@ final class WindowPositioningController: NSObject, NSWindowDelegate {
         window.setFrame(frame, display: true, animate: false)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+
+        // Ask the content view to focus the search field.
+        NotificationCenter.default.post(name: .focusRepoSearchField, object: nil)
     }
 
     func hideMainWindow() {
