@@ -43,7 +43,9 @@ struct ContentView: View {
         VStack(spacing: 0) {
             Table(filteredRepos, selection: $viewModel.selection, sortOrder: $sortOrder) {
                 TableColumn("仓库名称", value: \.name) { repo in
-                    RepoNameCell(repo: repo)
+                    RepoNameCell(repo: repo) {
+                        viewModel.togglePin(id: repo.id)
+                    }
                 }
                 .width(min: 150)
                 
@@ -113,6 +115,21 @@ struct ContentView: View {
                             Image(systemName: "arrow.triangle.branch")
                         }
                         .help("Open in SourceTree")
+
+                        Button {
+                            NSWorkspace.shared.open(URL(fileURLWithPath: repo.path))
+                        } label: {
+                            Image(systemName: "folder")
+                        }
+                        .help("Open in Finder")
+
+                        Button {
+                            openInBrowser(remoteURL: repo.remoteURL)
+                        } label: {
+                            Image(systemName: "safari")
+                        }
+                        .help("Open in Browser")
+                        .disabled(repo.remoteURL.isEmpty)
                     }
                     .labelStyle(.iconOnly)
                     .buttonStyle(.borderless)
@@ -204,6 +221,12 @@ struct ContentView: View {
                     Divider()
                     
                     Section(repo.name) {
+                        Button {
+                            viewModel.togglePin(id: repo.id)
+                        } label: {
+                            Label(repo.isPinned ? "Unpin" : "Pin", systemImage: repo.isPinned ? "pin.slash" : "pin")
+                        }
+
                         Button {
                             openInSourceTree(path: repo.path)
                         } label: {

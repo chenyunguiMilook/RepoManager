@@ -40,6 +40,8 @@ final class RepoListViewModel: ObservableObject {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("repos.json")
     }()
+
+    private var lastSortComparators: [KeyPathComparator<GitRepo>] = [KeyPathComparator(\GitRepo.name)]
     
     init() {
         loadFromDisk()
@@ -62,8 +64,23 @@ final class RepoListViewModel: ObservableObject {
     }
     
     func sort(using comparators: [KeyPathComparator<GitRepo>]) {
-        // 使用 Swift 标准库的 sort 方法，传入 comparators
-        repos.sort(using: comparators)
+        lastSortComparators = comparators
+        applyPinnedSort(using: comparators)
+    }
+
+    func togglePin(id: UUID) {
+        guard let index = repos.firstIndex(where: { $0.id == id }) else { return }
+        repos[index].isPinned.toggle()
+        saveToDisk()
+        applyPinnedSort(using: lastSortComparators)
+    }
+
+    private func applyPinnedSort(using comparators: [KeyPathComparator<GitRepo>]) {
+        var pinned = repos.filter { $0.isPinned }
+        var others = repos.filter { !$0.isPinned }
+        pinned.sort(using: comparators)
+        others.sort(using: comparators)
+        repos = pinned + others
     }
 
     func handleDrop(urls: [URL]) async {
@@ -128,6 +145,7 @@ final class RepoListViewModel: ObservableObject {
         guard let data = try? Data(contentsOf: savePath),
               let savedRepos = try? JSONDecoder().decode([GitRepo].self, from: data) else { return }
         self.repos = savedRepos
+        applyPinnedSort(using: lastSortComparators)
     }
     
     func saveToDisk() {

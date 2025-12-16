@@ -44,6 +44,9 @@ struct GitRepo: Identifiable, Codable, Hashable, Sendable {
     let id: UUID
     let path: String
     let name: String
+
+    // [新增] Pin 到顶部（需要持久化）
+    var isPinned: Bool = false
     
     var branch: String = "-"
     var statusType: RepoStatusType = .loading
@@ -67,7 +70,33 @@ struct GitRepo: Identifiable, Codable, Hashable, Sendable {
     }
     
     enum CodingKeys: String, CodingKey {
-        case id, path, name
+        case id, path, name, isPinned
         // status, tag, projectUrl 等属于运行时状态，不进行持久化
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        path = try container.decode(String.self, forKey: .path)
+        name = try container.decode(String.self, forKey: .name)
+        isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
+
+        // 运行时字段保持默认值（启动后由 GitService 刷新）
+        branch = "-"
+        statusType = .loading
+        statusMessage = ""
+        latestTag = ""
+        isTagAtHead = false
+        projectFileURL = nil
+        remoteURL = ""
+        currentOperation = nil
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(path, forKey: .path)
+        try container.encode(name, forKey: .name)
+        try container.encode(isPinned, forKey: .isPinned)
     }
 }
