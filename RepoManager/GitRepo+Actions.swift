@@ -11,15 +11,29 @@ import AppKit
 extension GitRepo {
     /// 在 VSCode 中打开仓库路径：优先尝试 `code` CLI，其次尝试使用 app bundle 打开，最后使用 `open -a`。
     func openInVSCode() {
-        let path = self.path
+        let repoPath = self.path
         let fm = FileManager.default
         let codeCLI = "/usr/local/bin/code"
+
+        // 如果仓库根目录下存在 .code-workspace，优先打开该 workspace
+        let targetURL: URL = {
+            let repoURL = URL(fileURLWithPath: repoPath)
+            guard let entries = try? fm.contentsOfDirectory(at: repoURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else {
+                return repoURL
+            }
+            let workspaces = entries
+                .filter { $0.pathExtension == "code-workspace" }
+                .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+            return workspaces.first ?? repoURL
+        }()
+
+        let targetPath = targetURL.path
 
         if fm.fileExists(atPath: codeCLI) {
             do {
                 let task = Process()
                 task.executableURL = URL(fileURLWithPath: codeCLI)
-                task.arguments = [path]
+                task.arguments = [targetPath]
                 try task.run()
                 return
             } catch {
@@ -31,7 +45,7 @@ extension GitRepo {
         do {
             let task = Process()
             task.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            task.arguments = ["code", path]
+            task.arguments = ["code", targetPath]
             try task.run()
             return
         } catch {
@@ -40,13 +54,13 @@ extension GitRepo {
 
         // 回退：按 bundle id 打开 VSCode 或使用 open -a
         if let appUrl = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.microsoft.VSCode") {
-            NSWorkspace.shared.open([URL(fileURLWithPath: path)], withApplicationAt: appUrl, configuration: .init(), completionHandler: nil)
+            NSWorkspace.shared.open([targetURL], withApplicationAt: appUrl, configuration: .init(), completionHandler: nil)
         } else if let appUrl = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.microsoft.VSCodeInsiders") {
-            NSWorkspace.shared.open([URL(fileURLWithPath: path)], withApplicationAt: appUrl, configuration: .init(), completionHandler: nil)
+            NSWorkspace.shared.open([targetURL], withApplicationAt: appUrl, configuration: .init(), completionHandler: nil)
         } else {
             let task = Process()
             task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-            task.arguments = ["-a", "Visual Studio Code", path]
+            task.arguments = ["-a", "Visual Studio Code", targetPath]
             try? task.run()
         }
     }
