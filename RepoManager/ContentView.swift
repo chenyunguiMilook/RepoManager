@@ -255,6 +255,13 @@ struct ContentView: View {
                             NSPasteboard.general.setString(repo.path, forType: .string)
                         } label: { Label("Copy Path", systemImage: "doc.on.doc") }
                         
+                        // 从列表中移除（仅从应用中移除，不删除磁盘）
+                        Button(role: .destructive) {
+                            viewModel.removeRepo(id: repo.id)
+                        } label: {
+                            Label("从列表移除", systemImage: "minus.circle")
+                        }
+
                         Divider()
 
                         Button(role: .destructive) {

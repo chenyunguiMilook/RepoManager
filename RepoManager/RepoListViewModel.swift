@@ -75,6 +75,15 @@ final class RepoListViewModel: ObservableObject {
         applyPinnedSort(using: lastSortComparators)
     }
 
+    /// 从列表中移除仓库（仅从应用列表移除，不删除磁盘上的文件）
+    func removeRepo(id: UUID) {
+        if let index = repos.firstIndex(where: { $0.id == id }) {
+            repos.remove(at: index)
+            selection.remove(id)
+            saveToDisk()
+        }
+    }
+
     private func applyPinnedSort(using comparators: [KeyPathComparator<GitRepo>]) {
         var pinned = repos.filter { $0.isPinned }
         var others = repos.filter { !$0.isPinned }
