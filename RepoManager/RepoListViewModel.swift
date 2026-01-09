@@ -93,6 +93,15 @@ final class RepoListViewModel: ObservableObject {
     }
 
     func handleDrop(urls: [URL]) async {
+        let containsDirectory = urls.contains { url in
+            if url.hasDirectoryPath { return true }
+            return (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+        }
+
+        if containsDirectory {
+            WindowPositioningController.shared.isAutoHideEnabled = false
+        }
+
         var candidatesFound: [ImportCandidate] = []
         
         // 捕获静态列表以供后台线程使用 (Set是值类型，Sendable)

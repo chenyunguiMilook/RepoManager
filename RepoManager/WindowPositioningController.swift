@@ -5,6 +5,20 @@ import AppKit
 final class WindowPositioningController: NSObject, NSWindowDelegate {
     static let shared = WindowPositioningController()
 
+    nonisolated static let autoHideEnabledDefaultsKey = "RepoManager.autoHideMainWindowEnabled"
+
+    var isAutoHideEnabled: Bool {
+        get {
+            if UserDefaults.standard.object(forKey: Self.autoHideEnabledDefaultsKey) == nil {
+                return true
+            }
+            return UserDefaults.standard.bool(forKey: Self.autoHideEnabledDefaultsKey)
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Self.autoHideEnabledDefaultsKey)
+        }
+    }
+
     /// Provided by SwiftUI environment so we can recreate the window if it was closed.
     var openMainWindow: (() -> Void)?
 
@@ -65,6 +79,7 @@ final class WindowPositioningController: NSObject, NSWindowDelegate {
 
     func windowDidResignKey(_ notification: Notification) {
         guard let window = notification.object as? NSWindow, window === mainWindow else { return }
+        guard isAutoHideEnabled else { return }
         window.orderOut(nil)
     }
 
@@ -75,7 +90,8 @@ final class WindowPositioningController: NSObject, NSWindowDelegate {
 
         observers.append(
             NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
-                self?.hideMainWindow()
+                guard let self, self.isAutoHideEnabled else { return }
+                self.hideMainWindow()
             }
         )
     }

@@ -473,6 +473,7 @@ struct BottomBarView: View {
             Menu {
                 Button {
                     // 方法1: 打开应用内设置 View
+                    WindowPositioningController.shared.isAutoHideEnabled = false
                     isShowingSettings = true
                     
                     // 方法2: 如果你更喜欢原生偏好设置窗口行为

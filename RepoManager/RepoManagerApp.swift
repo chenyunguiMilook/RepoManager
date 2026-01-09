@@ -13,6 +13,7 @@ struct RepoManagerApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     // 1. 获取打开窗口的环境变量
     @Environment(\.openWindow) private var openWindow
+    @AppStorage(WindowPositioningController.autoHideEnabledDefaultsKey) private var isAutoHideMainWindowEnabled: Bool = true
 
     var body: some Scene {
         // 2. 给主窗口组指定一个唯一的 ID
@@ -32,6 +33,16 @@ struct RepoManagerApp: App {
         // 移除标准菜单中的 "新建窗口" 选项，防止通过 Cmd+N 创建窗口
         .commands {
             CommandGroup(replacing: .newItem) { }
+
+            CommandGroup(replacing: .appSettings) {
+                Button("偏好设置...") {
+                    isAutoHideMainWindowEnabled = false
+                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                    NSApp.activate(ignoringOtherApps: true)
+                }
+                .keyboardShortcut(",", modifiers: .command)
+            }
+
             SidebarCommands()
         }
         .windowResizability(.contentSize)
@@ -56,22 +67,17 @@ struct RepoManagerApp: App {
             .keyboardShortcut("o") // 支持快捷键 Cmd+O
             
             Divider()
+
+            Toggle("自动隐藏主窗口", isOn: $isAutoHideMainWindowEnabled)
+
+            Divider()
             
-            // MARK: - 修改点：使用 SettingsLink
-            // 注意：SettingsLink 仅支持 macOS 14.0+
-            if #available(macOS 14.0, *) {
-                SettingsLink {
-                    Text("偏好设置...")
-                }
-                .keyboardShortcut(",", modifiers: .command) // 绑定 Cmd+,
-            } else {
-                // macOS 13 或更低版本的兼容代码
-                Button("偏好设置...") {
-                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-                    NSApp.activate(ignoringOtherApps: true)
-                }
-                .keyboardShortcut(",")
+            Button("偏好设置...") {
+                isAutoHideMainWindowEnabled = false
+                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                NSApp.activate(ignoringOtherApps: true)
             }
+            .keyboardShortcut(",", modifiers: .command)
             
             Divider()
             
