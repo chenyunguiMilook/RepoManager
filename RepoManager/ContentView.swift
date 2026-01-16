@@ -101,6 +101,13 @@ struct ContentView: View {
                         .help("Open in VS Code")
 
                         Button {
+                            repo.openInAntigravity()
+                        } label: {
+                            Image(systemName: "sparkles")
+                        }
+                        .help("Open in Antigravity")
+
+                        Button {
                             if let terminalApp = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") {
                                 NSWorkspace.shared.open([URL(fileURLWithPath: repo.path)], withApplicationAt: terminalApp, configuration: .init(), completionHandler: nil)
                             }
@@ -250,6 +257,9 @@ struct ContentView: View {
                         Button {
                             repo.openInVSCode()
                         } label: { Label("Open in VSCode", systemImage: "chevron.left.slash.chevron.right") }
+                        Button {
+                            repo.openInAntigravity()
+                        } label: { Label("Open in Antigravity", systemImage: "sparkles") }
                         Button {
                             NSPasteboard.general.clearContents()
                             NSPasteboard.general.setString(repo.path, forType: .string)

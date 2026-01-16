@@ -65,6 +65,46 @@ extension GitRepo {
         }
     }
 
+    /// 在 Antigravity 中打开仓库路径：优先尝试 `agy` CLI，其次尝试使用 app bundle 打开，最后使用 `open -a`。
+    func openInAntigravity() {
+        let repoPath = self.path
+        let fm = FileManager.default
+        let antigravityCLI = "/Users/chenyungui/.antigravity/antigravity/bin/agy"
+
+        if fm.fileExists(atPath: antigravityCLI) {
+            do {
+                let task = Process()
+                task.executableURL = URL(fileURLWithPath: antigravityCLI)
+                task.arguments = [repoPath]
+                try task.run()
+                return
+            } catch {
+                print("Failed to run antigravity CLI: \(error)")
+            }
+        }
+
+        // 尝试使用 /usr/bin/env agy
+        do {
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            task.arguments = ["agy", repoPath]
+            try task.run()
+            return
+        } catch {
+            // 继续回退到 App 打开
+        }
+
+        // 回退：按 bundle id 打开 Antigravity 或使用 open -a
+        if let appUrl = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.antigravity.app") {
+            NSWorkspace.shared.open([URL(fileURLWithPath: repoPath)], withApplicationAt: appUrl, configuration: .init(), completionHandler: nil)
+        } else {
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+            task.arguments = ["-a", "Antigravity", repoPath]
+            try? task.run()
+        }
+    }
+
     /// 删除仓库下的 `.build` 目录（如果存在）。返回是否成功（不存在视为成功）。
     @discardableResult
     func cleanBuildDirectory() -> Bool {
