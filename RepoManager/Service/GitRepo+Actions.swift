@@ -71,11 +71,25 @@ extension GitRepo {
         let fm = FileManager.default
         let antigravityCLI = "/Users/chenyungui/.antigravity/antigravity/bin/agy"
 
+        // 如果仓库根目录下存在 .code-workspace，优先打开该 workspace
+        let targetURL: URL = {
+            let repoURL = URL(fileURLWithPath: repoPath)
+            guard let entries = try? fm.contentsOfDirectory(at: repoURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else {
+                return repoURL
+            }
+            let workspaces = entries
+                .filter { $0.pathExtension == "code-workspace" }
+                .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+            return workspaces.first ?? repoURL
+        }()
+
+        let targetPath = targetURL.path
+
         if fm.fileExists(atPath: antigravityCLI) {
             do {
                 let task = Process()
                 task.executableURL = URL(fileURLWithPath: antigravityCLI)
-                task.arguments = [repoPath]
+                task.arguments = [targetPath]
                 try task.run()
                 return
             } catch {
@@ -87,7 +101,7 @@ extension GitRepo {
         do {
             let task = Process()
             task.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            task.arguments = ["agy", repoPath]
+            task.arguments = ["agy", targetPath]
             try task.run()
             return
         } catch {
@@ -96,11 +110,11 @@ extension GitRepo {
 
         // 回退：按 bundle id 打开 Antigravity 或使用 open -a
         if let appUrl = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.antigravity.app") {
-            NSWorkspace.shared.open([URL(fileURLWithPath: repoPath)], withApplicationAt: appUrl, configuration: .init(), completionHandler: nil)
+            NSWorkspace.shared.open([targetURL], withApplicationAt: appUrl, configuration: .init(), completionHandler: nil)
         } else {
             let task = Process()
             task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-            task.arguments = ["-a", "Antigravity", repoPath]
+            task.arguments = ["-a", "Antigravity", targetPath]
             try? task.run()
         }
     }
