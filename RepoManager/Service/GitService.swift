@@ -123,15 +123,28 @@ struct GitService {
         let fileManager = FileManager.default
         let rootURL = URL(fileURLWithPath: pathStr)
         
-        // 1. 检查 *.xcodeproj
-        // 由于 xcodeproj 是目录，我们需要扫描
-        if let contents = try? fileManager.contentsOfDirectory(at: rootURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
-            if let xcodeProj = contents.first(where: { $0.pathExtension == "xcodeproj" }) {
-                return xcodeProj
+        // 1. 检查根目录下的 xcodeproj
+        let rootContents = (try? fileManager.contentsOfDirectory(at: rootURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
+        if let xcodeProj = rootContents.first(where: { $0.pathExtension == "xcodeproj" }) {
+            return xcodeProj
+        }
+        
+        // 2. 检查是否有 Apps 目录
+        let appsURL = rootURL.appendingPathComponent("Apps")
+        var isDir: ObjCBool = false
+        if fileManager.fileExists(atPath: appsURL.path, isDirectory: &isDir), isDir.boolValue {
+            // 在 Apps 目录下递归查找 xcodeproj
+            let options: FileManager.DirectoryEnumerationOptions = [.skipsHiddenFiles, .skipsPackageDescendants]
+            if let enumerator = fileManager.enumerator(at: appsURL, includingPropertiesForKeys: nil, options: options) {
+                while let fileURL = enumerator.nextObject() as? URL {
+                    if fileURL.pathExtension == "xcodeproj" {
+                        return fileURL
+                    }
+                }
             }
         }
         
-        // 2. 检查 Package.swift
+        // 3. 否则在根目录找 Package.swift
         let packageURL = rootURL.appendingPathComponent("Package.swift")
         if fileManager.fileExists(atPath: packageURL.path) {
             return packageURL
